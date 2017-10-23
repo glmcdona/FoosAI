@@ -1,5 +1,10 @@
 # FoosAI
 This is a research project where we are automating a foosball table using robotics and deep learning.
+![We're talking about table soccer (Foosball)](/Media/Foosball.png)
+![Automating it using deep learning](/Media/System.png)
+![The robot](/Media/FoosAI.png)
+![Rod coupling](/Media/RodCoupling.png)
+
 
 ## Overview
 

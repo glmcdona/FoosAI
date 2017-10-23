@@ -1,0 +1,698 @@
+
+
+
+from keras.models import Sequential
+from keras.layers import *
+from keras.models import Model
+?
+?
+def validate(model, reader, trainer):
+    # process minibatches and evaluate the model
+    metric_numer    = 0
+    metric_denom    = 0
+    minibatch_index = 0
+    minibatch_size = 1
+    
+    reader.reset()
+    output_true = np.zeros((reader.size(),2))
+    output_predicted = np.zeros((reader.size(),2))
+    current_output = 0
+    
+    while reader.has_more():
+        videos, labels, current_minibatch = reader.next_minibatch(minibatch_size)
+        
+        for i in range(minibatch_size):
+            output_true[current_output,:] = labels[i,:]
+            
+            # Use the model to predict the corresponding otuput
+            video = np.empty(shape=(1, 1, reader.sequence_length, reader.height, reader.width), dtype=np.float32)
+            video[0,0,:,:,:] = videos[i,:,:,:]
+            predictions = model.eval({model.arguments[0]:video})
+            
+            # Log the result
+            output_predicted[current_output,:] = predictions
+            
+            current_output += 1
+            
+        
+        # minibatch data to be trained with
+        result = trainer.test_minibatch({input_var : videos, label_var : labels})
+        #pp.pprint(result)
+        metric_numer += result * current_minibatch
+        #print('error rate on an unseen minibatch: {}'.format(metric_numer))
+        metric_denom += current_minibatch
+        # Keep track of the number of samples processed so far.
+        minibatch_index += 1
+?
+    print("Validation Results: Minibatch[1-{}]: errs = {:0.2f}% * {}".format(minibatch_index+1, (metric_numer*100.0)/metric_denom, metric_denom))
+    plt.subplot(211)
+    count = reader.size()
+    true, predicted = zip(*sorted(zip(output_true[0:count,0], output_predicted[0:count,0])))
+    plt.plot(range(count),true, range(count),predicted )
+    plt.ylabel("Linear acceleration")
+    plt.title("First 200 output recordings")
+    plt.grid(True)
+    plt.subplot(212)
+    true, predicted = zip(*sorted(zip(output_true[0:count,1], output_predicted[0:count,1])))
+    plt.plot(range(count),true, range(count),predicted, marker='.', markersize = 2, linewidth =0.1, markerfacecolor='black')
+    plt.ylabel("Angular velocity")
+    plt.grid(True)
+    plt.show()
+    
+?
+# Training options
+max_epochs = 100
+?
+# These values must match for both train and test reader.
+image_height       = training.height
+image_width        = training.width
+image_depth        = training.depth
+image_channels     = training.channels
+output_size        = 3
+?
+'''
+https://keras.io/layers/writing-your-own-keras-layers/
+class PositionFlatten(Layer):
+?
+    def __init__(self, output_dim, **kwargs):
+        self.output_dim = output_dim
+        super(PositionFlatten, self).__init__(**kwargs)
+?
+    def build(self, input_shape):
+        # Create a trainable weight variable for this layer.
+        self.kernel = self.add_weight(name='kernel', 
+                                      shape=(input_shape[1], self.output_dim),
+                                      initializer='uniform',
+                                      trainable=True)
+        super(PositionFlatten, self).build(input_shape)  # Be sure to call this somewhere!
+?
+    def get_output_shape_for(self, input_shape):
+        return tuple([input_shape[0], input_shape[4] * 3])
+?
+    def call(self, x, mask=None):
+        input_shape = self.input_spec[0].shape
+        # (?, 1, 54, 100, 128)
+        #data =K. sum(x, )
+        
+        points = zeros((input_shape[0], input_shape[4] * 3))
+        for i in range(input_shape[4]):
+            for j in range(input_shape[0]):
+                frame = input[j,1,:,:,i]
+                print(np.unravel_index(K.argmax(frame), frame.shape))
+                x,y = np.unravel_index(K.argmax(frame), frame.shape)
+                size_x, size_y = frame.shape
+                points[j,i*3] = float(x)/size_x
+                points[j,i*3+1] = float(y)/size_y
+                points[j,i*3+2] = frame[x,y]
+        
+        return points
+    
+    def get_config(self):
+        base_config = super(PositionFlatten, self).get_config()
+        return dict(list(base_config.items()))
+'''
+?
+# Build the location transform layer
+# coordinate_transform()
+# https://keras.io/layers/core/#lambda
+# https://keunwoochoi.wordpress.com/2016/11/18/for-beginners-writing-a-custom-keras-layer/
+def position_flatten(input, axes = [2,3], debug = True):
+    # (?, 1, 54, 100, 128)
+    if debug:
+        print("Starting shape: %s" % input.shape)
+    
+    result = None
+    for axis in axes:
+        data_current = input
+        
+        # Sum along the other dimensions
+        for flatten_axes in axes:
+            if flatten_axes != axis:
+                data_current = K.sum(input, flatten_axes, keepdims=True) # (?, 1, 54, 128 )
+        if debug:
+            print("Summed shape: %s" % data_current.dtype)
+        
+        # Calculate the averaged position on the range [0.0, 1.0] for the axis energy
+        ramp = K.cumsum(K.ones_like(data_current), axis) / K.cast(input.shape[axis], 'float32')
+        data_current = K.sum(data_current * ramp, axis, keepdims=True) / K.sum(data_current, axis, keepdims=True) # (?, 1, 54, 128 )
+        
+        if result is None:
+            result = data_current
+        else:
+            # Concatonate this flattened axis on the first flattened dimension
+            result = K.concatenate([result, data_current], axes[0])
+        
+        if debug:
+            print("After concat shape: %s" % result.dtype)
+        
+    
+    # Squeeze the extra axes, largest index first
+    if debug:
+        print("Resulting dimension before squeeze: %s" % result.dtype)
+    #for axis in sorted(axes, reverse=True):
+    #    if axis != axes[0]: # Don't squeeze the result dimension
+    #        result = K.squeeze(result, axis)
+    #print("Resulting squeezed dimension: %s" % result.shape)
+    
+    return result
+?
+def position_flatten_shape(input_shape):
+    #shape = list(input_shape)
+    #assert len(shape) == 5  # only valid for 4D tensors
+    
+    return (input_shape[0],1,2,input_shape[-1])
+?
+def position_flatten2(input, debug = True):
+    # (?, 1, 54, 100, 128)
+    if debug:
+        print("Starting shape: %s" % input.shape)
+        print("Starting type: %s" % input.dtype)
+    
+    data_current = K.sum(input, 2, keepdims=True) # (?, 1, 1, 54, 128 )
+    ramp = K.cumsum(K.ones_like(data_current), 3) / K.cast(input.shape[3], 'float32')
+    
+    data_current = K.sum(data_current * ramp, 3, keepdims=True) / K.sum(data_current, 3, keepdims=True) # (?, 1, 54, 128 )
+    
+    if debug:
+        print("Ending shape: %s" % data_current.shape)
+        print("Ending type: %s" % data_current.dtype)
+    
+    return data_current
+?
+def sum_image_flatten_x(input):
+    # (?, 1, 54, 100, 128)
+    data_x = K.max(input, 2) # (?, 1, 54, 128 )
+    data_x = K.expand_dims(data_x, axis=-1)
+    return data_x
+?
+?
+def sum_image_flatten_y(input):
+    # (?, 1, 54, 100, 128)
+    data = K.max(input, 1) # (?, 1, 100, 128 )
+    data = K.expand_dims(data, axis=-1)
+    return data
+?
+?
+?
+# Build the model
+pp.pprint("Input shape without batches:")
+pp.pprint((image_height, image_width, image_channels))
+?
+?
+# Build a functional model design
+inputs = Input(shape=(1, image_height, image_width, image_channels,))
+x = Conv3D(124,
+           kernel_size = (1, 5, 5),
+           padding = "same")(inputs)
+x = Activation('relu')(x)
+?
+x = Conv3D(124,
+           kernel_size = (1, 5, 5),
+           padding = "same")(x)
+x = Activation('relu')(x)
+?
+# Split into two sum images
+x1 = MaxPooling3D( pool_size=(1, 2, 1))(x) # (?, 54, 100, 128, 1 )
+x2 = MaxPooling3D( pool_size=(1, 1, 2))(x) # (?, 54, 100, 128, 1 )
+?
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = MaxPooling3D( pool_size=(1, 2, 1))(x1)
+?
+?
+?
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = MaxPooling3D( pool_size=(1, 2, 1))(x1)
+?
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = MaxPooling3D( pool_size=(1, 1, 2))(x1)
+?
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = MaxPooling3D( pool_size=(1, 1, 2))(x1)
+?
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x1)
+x1 = MaxPooling3D( pool_size=(1, 1, 2))(x1)
+?
+x1 = Flatten()(x1)
+?
+?
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 2, 1))(x2)
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 2, 1))(x2)
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 2, 1))(x2)
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 1, 2))(x2)
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 1, 2))(x2)
+?
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = Conv3D(124,
+           kernel_size = (1, 3, 3),
+           padding = "same",
+           activation = "relu")(x2)
+x2 = MaxPooling3D( pool_size=(1, 1, 2))(x2)
+?
+x2 = Flatten()(x2)
+?
+?
+x = keras.layers.concatenate([x1, x2])
+?
+#x = Flatten()(x1)
+x = Dense(256, activation='relu')(x)
+x = Dropout(0.5)(x)
+x = Dense(128, activation='relu')(x)
+x = Dropout(0.5)(x)
+x = Dense(128, activation='relu')(x)
+x = Dropout(0.5)(x)
+x = Dense(64, activation='relu')(x)
+x = Dropout(0.5)(x)
+predictions = Dense(3, activation='linear')(x)
+?
+model = Model(inputs=inputs, outputs=predictions)
+?
+?
+#epoch = 45
+#WEIGHTS_FNAME = 'config5_iter%i.hdf'
+#model.load_weights(WEIGHTS_FNAME % epoch)
+#print("Loaded model.")
+?
+#model.optimizer.lr.assign(0.00000001)
+?
+# For a multi-class classification problem
+model.compile(optimizer=keras.optimizers.RMSprop(lr=0.0001),
+              loss='mean_squared_error',
+              metrics=['accuracy'])
+?
+model.summary()
+'Input shape without batches:'
+(54, 100, 3)
+____________________________________________________________________________________________________
+Layer (type)                     Output Shape          Param #     Connected to                     
+====================================================================================================
+input_1 (InputLayer)             (None, 1, 54, 100, 3) 0                                            
+____________________________________________________________________________________________________
+conv3d_1 (Conv3D)                (None, 1, 54, 100, 12 9424        input_1[0][0]                    
+____________________________________________________________________________________________________
+activation_1 (Activation)        (None, 1, 54, 100, 12 0           conv3d_1[0][0]                   
+____________________________________________________________________________________________________
+conv3d_2 (Conv3D)                (None, 1, 54, 100, 12 384524      activation_1[0][0]               
+____________________________________________________________________________________________________
+activation_2 (Activation)        (None, 1, 54, 100, 12 0           conv3d_2[0][0]                   
+____________________________________________________________________________________________________
+max_pooling3d_2 (MaxPooling3D)   (None, 1, 54, 50, 124 0           activation_2[0][0]               
+____________________________________________________________________________________________________
+conv3d_13 (Conv3D)               (None, 1, 54, 50, 124 138508      max_pooling3d_2[0][0]            
+____________________________________________________________________________________________________
+conv3d_14 (Conv3D)               (None, 1, 54, 50, 124 138508      conv3d_13[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_1 (MaxPooling3D)   (None, 1, 27, 100, 12 0           activation_2[0][0]               
+____________________________________________________________________________________________________
+max_pooling3d_8 (MaxPooling3D)   (None, 1, 27, 50, 124 0           conv3d_14[0][0]                  
+____________________________________________________________________________________________________
+conv3d_3 (Conv3D)                (None, 1, 27, 100, 12 138508      max_pooling3d_1[0][0]            
+____________________________________________________________________________________________________
+conv3d_15 (Conv3D)               (None, 1, 27, 50, 124 138508      max_pooling3d_8[0][0]            
+____________________________________________________________________________________________________
+conv3d_4 (Conv3D)                (None, 1, 27, 100, 12 138508      conv3d_3[0][0]                   
+____________________________________________________________________________________________________
+conv3d_16 (Conv3D)               (None, 1, 27, 50, 124 138508      conv3d_15[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_3 (MaxPooling3D)   (None, 1, 13, 100, 12 0           conv3d_4[0][0]                   
+____________________________________________________________________________________________________
+max_pooling3d_9 (MaxPooling3D)   (None, 1, 13, 50, 124 0           conv3d_16[0][0]                  
+____________________________________________________________________________________________________
+conv3d_5 (Conv3D)                (None, 1, 13, 100, 12 138508      max_pooling3d_3[0][0]            
+____________________________________________________________________________________________________
+conv3d_17 (Conv3D)               (None, 1, 13, 50, 124 138508      max_pooling3d_9[0][0]            
+____________________________________________________________________________________________________
+conv3d_6 (Conv3D)                (None, 1, 13, 100, 12 138508      conv3d_5[0][0]                   
+____________________________________________________________________________________________________
+conv3d_18 (Conv3D)               (None, 1, 13, 50, 124 138508      conv3d_17[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_4 (MaxPooling3D)   (None, 1, 6, 100, 124 0           conv3d_6[0][0]                   
+____________________________________________________________________________________________________
+max_pooling3d_10 (MaxPooling3D)  (None, 1, 6, 50, 124) 0           conv3d_18[0][0]                  
+____________________________________________________________________________________________________
+conv3d_7 (Conv3D)                (None, 1, 6, 100, 124 138508      max_pooling3d_4[0][0]            
+____________________________________________________________________________________________________
+conv3d_19 (Conv3D)               (None, 1, 6, 50, 124) 138508      max_pooling3d_10[0][0]           
+____________________________________________________________________________________________________
+conv3d_8 (Conv3D)                (None, 1, 6, 100, 124 138508      conv3d_7[0][0]                   
+____________________________________________________________________________________________________
+conv3d_20 (Conv3D)               (None, 1, 6, 50, 124) 138508      conv3d_19[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_5 (MaxPooling3D)   (None, 1, 6, 50, 124) 0           conv3d_8[0][0]                   
+____________________________________________________________________________________________________
+max_pooling3d_11 (MaxPooling3D)  (None, 1, 6, 25, 124) 0           conv3d_20[0][0]                  
+____________________________________________________________________________________________________
+conv3d_9 (Conv3D)                (None, 1, 6, 50, 124) 138508      max_pooling3d_5[0][0]            
+____________________________________________________________________________________________________
+conv3d_21 (Conv3D)               (None, 1, 6, 25, 124) 138508      max_pooling3d_11[0][0]           
+____________________________________________________________________________________________________
+conv3d_10 (Conv3D)               (None, 1, 6, 50, 124) 138508      conv3d_9[0][0]                   
+____________________________________________________________________________________________________
+conv3d_22 (Conv3D)               (None, 1, 6, 25, 124) 138508      conv3d_21[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_6 (MaxPooling3D)   (None, 1, 6, 25, 124) 0           conv3d_10[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_12 (MaxPooling3D)  (None, 1, 6, 12, 124) 0           conv3d_22[0][0]                  
+____________________________________________________________________________________________________
+conv3d_11 (Conv3D)               (None, 1, 6, 25, 124) 138508      max_pooling3d_6[0][0]            
+____________________________________________________________________________________________________
+conv3d_23 (Conv3D)               (None, 1, 6, 12, 124) 138508      max_pooling3d_12[0][0]           
+____________________________________________________________________________________________________
+conv3d_12 (Conv3D)               (None, 1, 6, 25, 124) 138508      conv3d_11[0][0]                  
+____________________________________________________________________________________________________
+conv3d_24 (Conv3D)               (None, 1, 6, 12, 124) 138508      conv3d_23[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_7 (MaxPooling3D)   (None, 1, 6, 12, 124) 0           conv3d_12[0][0]                  
+____________________________________________________________________________________________________
+max_pooling3d_13 (MaxPooling3D)  (None, 1, 6, 6, 124)  0           conv3d_24[0][0]                  
+____________________________________________________________________________________________________
+flatten_1 (Flatten)              (None, 8928)          0           max_pooling3d_7[0][0]            
+____________________________________________________________________________________________________
+flatten_2 (Flatten)              (None, 4464)          0           max_pooling3d_13[0][0]           
+____________________________________________________________________________________________________
+concatenate_1 (Concatenate)      (None, 13392)         0           flatten_1[0][0]                  
+                                                                   flatten_2[0][0]                  
+____________________________________________________________________________________________________
+dense_1 (Dense)                  (None, 256)           3428608     concatenate_1[0][0]              
+____________________________________________________________________________________________________
+dropout_1 (Dropout)              (None, 256)           0           dense_1[0][0]                    
+____________________________________________________________________________________________________
+dense_2 (Dense)                  (None, 128)           32896       dropout_1[0][0]                  
+____________________________________________________________________________________________________
+dropout_2 (Dropout)              (None, 128)           0           dense_2[0][0]                    
+____________________________________________________________________________________________________
+dense_3 (Dense)                  (None, 128)           16512       dropout_2[0][0]                  
+____________________________________________________________________________________________________
+dropout_3 (Dropout)              (None, 128)           0           dense_3[0][0]                    
+____________________________________________________________________________________________________
+dense_4 (Dense)                  (None, 64)            8256        dropout_3[0][0]                  
+____________________________________________________________________________________________________
+dropout_4 (Dropout)              (None, 64)            0           dense_4[0][0]                    
+____________________________________________________________________________________________________
+dense_5 (Dense)                  (None, 3)             195         dropout_4[0][0]                  
+====================================================================================================
+Total params: 6,927,591
+Trainable params: 6,927,591
+Non-trainable params: 0
+____________________________________________________________________________________________________
+
+
+------ Epoch 0 -------
+Epoch 1/1
+1552/1552 [==============================] - 911s - loss: 0.1739 - acc: 0.3524 - val_loss: 0.0658 - val_acc: 0.4798
+------ Epoch 1 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0683 - acc: 0.4119 - val_loss: 0.0647 - val_acc: 0.4063
+------ Epoch 2 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0610 - acc: 0.4505 - val_loss: 0.0531 - val_acc: 0.5322
+------ Epoch 3 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0571 - acc: 0.4897 - val_loss: 0.0474 - val_acc: 0.5450
+------ Epoch 4 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0517 - acc: 0.5278 - val_loss: 0.0383 - val_acc: 0.5079
+------ Epoch 5 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0483 - acc: 0.5620 - val_loss: 0.0441 - val_acc: 0.5075
+------ Epoch 6 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0462 - acc: 0.5723 - val_loss: 0.0398 - val_acc: 0.6197
+------ Epoch 7 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0444 - acc: 0.5851 - val_loss: 0.0371 - val_acc: 0.6120
+------ Epoch 8 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0428 - acc: 0.5927 - val_loss: 0.0325 - val_acc: 0.6329
+------ Epoch 9 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0415 - acc: 0.5973 - val_loss: 0.0323 - val_acc: 0.5679
+------ Epoch 10 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0408 - acc: 0.5991 - val_loss: 0.0331 - val_acc: 0.5484
+------ Epoch 11 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0397 - acc: 0.6057 - val_loss: 0.0327 - val_acc: 0.4885
+------ Epoch 12 -------
+Epoch 1/1
+1552/1552 [==============================] - 908s - loss: 0.0386 - acc: 0.6185 - val_loss: 0.0302 - val_acc: 0.6033
+------ Epoch 13 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0361 - acc: 0.6448 - val_loss: 0.0293 - val_acc: 0.4874
+------ Epoch 14 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0340 - acc: 0.6687 - val_loss: 0.0214 - val_acc: 0.6383
+------ Epoch 15 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0326 - acc: 0.7087 - val_loss: 0.0203 - val_acc: 0.7028
+------ Epoch 16 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0306 - acc: 0.7173 - val_loss: 0.0225 - val_acc: 0.7343
+------ Epoch 17 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0297 - acc: 0.7250 - val_loss: 0.0215 - val_acc: 0.6962
+------ Epoch 18 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0286 - acc: 0.7399 - val_loss: 0.0204 - val_acc: 0.7655
+------ Epoch 19 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0281 - acc: 0.7492 - val_loss: 0.0178 - val_acc: 0.7227
+------ Epoch 20 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0271 - acc: 0.7504 - val_loss: 0.0191 - val_acc: 0.7984
+------ Epoch 21 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0263 - acc: 0.7556 - val_loss: 0.0163 - val_acc: 0.7897
+------ Epoch 22 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0260 - acc: 0.7575 - val_loss: 0.0204 - val_acc: 0.6848
+------ Epoch 23 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0257 - acc: 0.7611 - val_loss: 0.0205 - val_acc: 0.7846
+------ Epoch 24 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0259 - acc: 0.7607 - val_loss: 0.0186 - val_acc: 0.8143
+------ Epoch 25 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0254 - acc: 0.7585 - val_loss: 0.0218 - val_acc: 0.7488
+------ Epoch 26 -------
+Epoch 1/1
+1552/1552 [==============================] - 897s - loss: 0.0251 - acc: 0.7641 - val_loss: 0.0150 - val_acc: 0.7683
+------ Epoch 27 -------
+Epoch 1/1
+1552/1552 [==============================] - 897s - loss: 0.0251 - acc: 0.7647 - val_loss: 0.0144 - val_acc: 0.7932
+------ Epoch 28 -------
+Epoch 1/1
+1552/1552 [==============================] - 897s - loss: 0.0242 - acc: 0.7695 - val_loss: 0.0168 - val_acc: 0.8152
+------ Epoch 29 -------
+Epoch 1/1
+1552/1552 [==============================] - 897s - loss: 0.0243 - acc: 0.7679 - val_loss: 0.0152 - val_acc: 0.7890
+------ Epoch 30 -------
+Epoch 1/1
+1552/1552 [==============================] - 897s - loss: 0.0238 - acc: 0.7725 - val_loss: 0.0166 - val_acc: 0.7756
+------ Epoch 31 -------
+Epoch 1/1
+1552/1552 [==============================] - 900s - loss: 0.0238 - acc: 0.7736 - val_loss: 0.0160 - val_acc: 0.8084
+------ Epoch 32 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0237 - acc: 0.7712 - val_loss: 0.0144 - val_acc: 0.7899
+------ Epoch 33 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0230 - acc: 0.7746 - val_loss: 0.0163 - val_acc: 0.7955
+------ Epoch 34 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0234 - acc: 0.7716 - val_loss: 0.0168 - val_acc: 0.8204
+------ Epoch 35 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0234 - acc: 0.7747 - val_loss: 0.0182 - val_acc: 0.8032
+------ Epoch 36 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0230 - acc: 0.7727 - val_loss: 0.0170 - val_acc: 0.7622
+------ Epoch 37 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0227 - acc: 0.7724 - val_loss: 0.0143 - val_acc: 0.7983
+------ Epoch 38 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0222 - acc: 0.7793 - val_loss: 0.0172 - val_acc: 0.8085
+------ Epoch 39 -------
+Epoch 1/1
+1552/1552 [==============================] - 902s - loss: 0.0235 - acc: 0.7779 - val_loss: 0.0148 - val_acc: 0.8149
+------ Epoch 40 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0229 - acc: 0.7805 - val_loss: 0.0162 - val_acc: 0.7825
+------ Epoch 41 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0227 - acc: 0.7806 - val_loss: 0.0164 - val_acc: 0.7878
+------ Epoch 42 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0233 - acc: 0.7769 - val_loss: 0.0172 - val_acc: 0.7897
+------ Epoch 43 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0224 - acc: 0.7828 - val_loss: 0.0178 - val_acc: 0.7047
+------ Epoch 44 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0225 - acc: 0.7834 - val_loss: 0.0162 - val_acc: 0.8142
+------ Epoch 45 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0227 - acc: 0.7810 - val_loss: 0.0169 - val_acc: 0.8040
+------ Epoch 46 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0228 - acc: 0.7799 - val_loss: 0.0177 - val_acc: 0.8004
+------ Epoch 47 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0223 - acc: 0.7831 - val_loss: 0.0132 - val_acc: 0.8052
+------ Epoch 48 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0219 - acc: 0.7892 - val_loss: 0.0183 - val_acc: 0.7951
+------ Epoch 49 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0224 - acc: 0.7815 - val_loss: 0.0139 - val_acc: 0.8034
+------ Epoch 50 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0223 - acc: 0.7883 - val_loss: 0.0160 - val_acc: 0.7921
+------ Epoch 51 -------
+Epoch 1/1
+1552/1552 [==============================] - 901s - loss: 0.0219 - acc: 0.7820 - val_loss: 0.0149 - val_acc: 0.7887
+------ Epoch 52 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0220 - acc: 0.7861 - val_loss: 0.0201 - val_acc: 0.8008
+------ Epoch 53 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0220 - acc: 0.7822 - val_loss: 0.0175 - val_acc: 0.7947
+------ Epoch 54 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0211 - acc: 0.7912 - val_loss: 0.0159 - val_acc: 0.7694
+------ Epoch 55 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0218 - acc: 0.7866 - val_loss: 0.0189 - val_acc: 0.7780
+------ Epoch 56 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0217 - acc: 0.7867 - val_loss: 0.0216 - val_acc: 0.7864
+------ Epoch 57 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0217 - acc: 0.7858 - val_loss: 0.0157 - val_acc: 0.7867
+------ Epoch 58 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0220 - acc: 0.7826 - val_loss: 0.0200 - val_acc: 0.7888
+------ Epoch 59 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0221 - acc: 0.7834 - val_loss: 0.0175 - val_acc: 0.7835
+------ Epoch 60 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0218 - acc: 0.7836 - val_loss: 0.0184 - val_acc: 0.7780
+------ Epoch 61 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0225 - acc: 0.7850 - val_loss: 0.0157 - val_acc: 0.7884
+------ Epoch 62 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0217 - acc: 0.7907 - val_loss: 0.0185 - val_acc: 0.7819
+------ Epoch 63 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0220 - acc: 0.7895 - val_loss: 0.0222 - val_acc: 0.7639
+------ Epoch 64 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0208 - acc: 0.7870 - val_loss: 0.0160 - val_acc: 0.7904
+------ Epoch 65 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0220 - acc: 0.7900 - val_loss: 0.0159 - val_acc: 0.8135
+------ Epoch 66 -------
+Epoch 1/1
+1552/1552 [==============================] - 899s - loss: 0.0218 - acc: 0.7868 - val_loss: 0.0129 - val_acc: 0.7694
+------ Epoch 67 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0222 - acc: 0.7908 - val_loss: 0.0165 - val_acc: 0.7970
+------ Epoch 68 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0215 - acc: 0.7867 - val_loss: 0.0167 - val_acc: 0.8193
+------ Epoch 69 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0210 - acc: 0.7957 - val_loss: 0.0174 - val_acc: 0.7693
+------ Epoch 70 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.1001 - acc: 0.7761 - val_loss: 0.0191 - val_acc: 0.8064
+------ Epoch 71 -------
+Epoch 1/1
+1552/1552 [==============================] - 898s - loss: 0.0213 - acc: 0.7928 - val_loss: 0.0170 - val_acc: 0.8079
+------ Epoch 72 -------
