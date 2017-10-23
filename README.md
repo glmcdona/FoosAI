@@ -106,16 +106,16 @@ First you create a transformer which describes how the random alterations of the
 
 ```python
 from video_file import *
-transformer = VideoTransform( zoom_range=0.1,
-                              rotation_range=20,
-                              width_shift_range=0.1,
-                              height_shift_range=0.1,
-                              shear_range= 0.1,
+transformer = VideoTransform( zoom_range=0.1, # +-10% zoom
+                              rotation_range=20, # +-20 degrees rotation
+                              width_shift_range=0.1, # Shift +-10 percent of width
+                              height_shift_range=0.1, # Shift +-10 percent of height
+                              shear_range= 0.1,  # Apply +-10 percent shearing
                               fill_mode='nearest',
                               vertical_flip=False,
                               horizontal_flip=True,
-                              horizontal_flip_invert_indices = [3,4,5],
-                              horizontal_flip_reverse_indices = [0,1,2],
+                              horizontal_flip_invert_indices = [3,4,5], # Invert the rod position deltas on horizontally flipped frames
+                              horizontal_flip_reverse_indices = [0,1,2], # Reverse the rod positions on horizontally flipped frames
                               data_format='channels_last' )
 ```
 
@@ -132,6 +132,8 @@ frame_rel_indexes = [0] # Use only current video frame as input
   training = TrainingInput(transformer, data_path, position_rel_indexes, frame_rel_indexes, 0.2)
   training.clear_memory()
 ```
+
+You can adjust the code to calculate 
 
 
 
