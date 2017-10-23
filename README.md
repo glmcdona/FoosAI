@@ -247,14 +247,20 @@ Here are a couple notes on the ML achitecture of this model:
 
 Achitecture:
 * Splits the CNN layers to a Width-Detailed and Height-Detailed CNN branches. The Width-Detailed branch pools vertically to maintain detailed positional width comparisons, before pooling horizontally afterwards to generalize. The Height-Detailed branch reduces similarly, with pooling vertically, before pooling horzontally.
-** Width-Detailed CNN branch: 1x100x54 -> 1x100x27 -> 1x100x13 -> 1x100x6 -> 1x50x6 -> 1x25x6 -> 1x12x6
-** Height-Detailed branch: 1x100x54 -> 1x50x54 -> 1x25x54 -> 1x13x54 -> 
+* Width-Detailed CNN branch: 1x100x54 -> 1x100x27 -> 1x100x13 -> 1x100x6 -> 1x50x6 -> 1x25x6 -> 1x12x6
+* Height-Detailed branch: 1x100x54 -> 1x50x54 -> 1x25x54 -> 1x13x54 -> 
 * Runs two 3x3 kernel convolutions + max pooling per CNN layer.
 * 124 kernels are used at each convolution.
 * Each CNN branch runs 6 of these CNN layer stacks.
 * The two branches are flattened and inputted to a fully connected neural network, this produces just over 13k inputs to the fully-connected layer.
-* Fully connected layers runs 256->128->64-> 3 outputs
+* Fully connected neural network layers with 50% dropout runs 256->128->64-> 3 outputs
 
+Training:
+* Trained for 4 days on my personal PC to learn to only output the three rod positions. The theory is that this teaches it to learn how to understand the rod positions.
+* The resulting model is then taken, and instead trained where the output is the change in rod position over the next 2 camera frames. This is a much harder problem and trained for another couple days.
+
+Running the model:
+* Runs on the graphics card of my Surface Book in realtime form webcam footage at a framerate of around 25 frames a second :)
 
 
 
