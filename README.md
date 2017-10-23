@@ -1,5 +1,10 @@
 # FoosAI
 This is a research project where we are automating a foosball table using robotics and deep learning.
+
+We've got a single foosball rod actuator running:
+[![Watch FoosAI](/Media/VideoCapture.png)](https://www.youtube.com/watch?v=sD1xugH3fjA "Watch FoosAI")
+
+Here are a couple photos:
 ![We're talking about table soccer (Foosball)](/Media/Foosball.png)
 ![Automating it using deep learning](/Media/System.png)
 ![The robot](/Media/FoosAI.png)
@@ -23,14 +28,13 @@ This is a research project where we are automating a foosball table using roboti
 
 ## Project stages
 
-### Stage 1
+### Stage 1 (In progress)
 Stage 1 of the project is just simple automation of the defense player rods:
 * CNN deep neural network trained to control only rod translation (not rod rotations) to defend against a simple attacker.
 * Processes only current camera frame to make the prediction (not previous frames).
 * No recurrent or memory layers (RNN).
 
 We are hoping to observe it controlling the defense rods to keep them between the ball and the net.
-
 
 ### Stage 2
 After proving Stage 1, we are hoping to build out robotic actuators to automate a whole side of a foosball table.
