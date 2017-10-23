@@ -48,5 +48,31 @@ After proving Stage 1, we are hoping to build out robotic actuators to automate 
 * Add lifts to one side of the table to unstuck the ball automatically.
 * Reinforcement learning where it plays against itself for hours (or days?).
 
+## Installation
+Most contributors are likely to work with the processed training data to try building their own ML models. This section is a quick start on the tools to install to get the example training code working.
 
+Install python 3.x using Ananconda, preferably the 64 bit version for a larger memory working set:
+* https://www.anaconda.com/download/
+
+Install a deep-learning framework. If you would like the example to work, you can install Keras. I use it currently with Tensorflow on Windows 64 bit myself:
+* Install Keras and Tensorflow. You can follow the instructions here https://keras.io/#installation.
+
+There are some prerequisites for the python code to work. In the anaconda prompt, you can install the prerequisites with the following commands:
+* pip install keras
+* pip install numpy
+* pip install imageio
+* pip install matplotlib
+* pip install opencv-python
+
+The following jupyter notebook has the training code to fool around with:
+* https://github.com/glmcdona/FoosAI/blob/master/Code/Training/TrainingFoosbot.ipynb
+
+To open up this notebook, from the anaconda environment run "jupyter notebook TrainingFoosbot.ipynb".
+
+There is a big python file which does most of the heavy-lifting that this jupyter notebook uses in the same folder:
+* https://github.com/glmcdona/FoosAI/blob/master/Code/Training/video_file.py
+
+There is a lot of code in here around not having to load all the training data into memory at the same time. It only keeps one chunk in memory at a time. It also has a lot of code around applying random transformations to the camera frames (rotations, skews, zooms, horizontal flipping, etc) to make the resulting models more robust.
+
+If you train a fun model, I can run it on the physical FoosAI robot to check out how it works :) Generally when implemented on the FoosAI robot, it needs a change in position to apply to the rods as the control signal.
 
