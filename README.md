@@ -165,7 +165,7 @@ The input format is (frames, x, y, colour channels). In this case we only input 
 The corresponding output format is (rod 1 pos, rod 2 pos, rod 3 pos, rod 1 delta pos compared to 2 frames in the future, rod 2 delta pos, rod 3 delta pos).
 
 To load minibatches for training for my usage in Keras, I train it like the following:
-```
+```python
 image_height       = training.height
 image_width        = training.width
 image_depth        = training.depth
@@ -233,7 +233,27 @@ for epoch in range(10000):
 ```
 
 
+## FoosAI released models
 
+### DefenceV1
+https://github.com/glmcdona/FoosAI/tree/master/ReleasedModels/DefenceV1
+
+This is the very first successfully working FoosAI brain.
+
+Here are a couple notes on the ML achitecture of this model:
+* Downsampled camera frame inputs are 100x55 pixels.
+* Only inputs current camera frame to make decision of rod movements to perform.
+* Only 3 foosball rods are visible and can be controlled by this model. The goalie, defender, and the attacking three bar rod.
+
+Achitecture:
+* Splits the CNN layers to a Width-Detailed and Height-Detailed CNN branches. The Width-Detailed branch pools vertically to maintain detailed positional width comparisons, before pooling horizontally afterwards to generalize. The Height-Detailed branch reduces similarly, with pooling vertically, before pooling horzontally.
+** Width-Detailed CNN branch: 1x100x54 -> 1x100x27 -> 1x100x13 -> 1x100x6 -> 1x50x6 -> 1x25x6 -> 1x12x6
+** Height-Detailed branch: 1x100x54 -> 1x50x54 -> 1x25x54 -> 1x13x54 -> 
+* Runs two 3x3 kernel convolutions + max pooling per CNN layer.
+* 124 kernels are used at each convolution.
+* Each CNN branch runs 6 of these CNN layer stacks.
+* The two branches are flattened and inputted to a fully connected neural network, this produces just over 13k inputs to the fully-connected layer.
+* Fully connected layers runs 256->128->64-> 3 outputs
 
 
 
