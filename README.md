@@ -48,7 +48,7 @@ After proving Stage 1, we are hoping to build out robotic actuators to automate 
 * Add lifts to one side of the table to unstuck the ball automatically.
 * Reinforcement learning where it plays against itself for hours (or days?).
 
-## Installation
+## Installation and starting the training notebook
 Most contributors are likely to work with the processed training data to try building their own ML models. This section is a quick start on the tools to install to get the example training code working.
 
 Install python 3.x using Ananconda, preferably the 64 bit version for a larger memory working set:
@@ -75,4 +75,63 @@ There is a big python file which does most of the heavy-lifting that this jupyte
 There is a lot of code in here around not having to load all the training data into memory at the same time. It only keeps one chunk in memory at a time. It also has a lot of code around applying random transformations to the camera frames (rotations, skews, zooms, horizontal flipping, etc) to make the resulting models more robust.
 
 If you train a fun model, I can run it on the physical FoosAI robot to check out how it works :) Generally when implemented on the FoosAI robot, it needs a change in position to apply to the rods as the control signal.
+
+## Only loading the training data
+The training data has two parts:
+1. Video camera frames as input.
+1. Corresponding array of foosball table rod positions.
+
+The processed training data is downsampled to a resolution of 100x55 and has the RGB colour channels. A training set is composed of multiple video chunks and a tsv file that has the rod positions. In the case of the first training set provided:
+* https://github.com/glmcdona/FoosAI/tree/master/TrainingData/Processed/AmateurDefender/Result
+
+It has two video chunks. Each row in chunk0.tsv corresponds to each frame in chunk0.avi and has the rod positions. The units here are in pixels before the frame downselection to 100x55 occured. In this case the column header would be "Rod1 position, Rod2 position, Rod3 position" - these are defined in https://github.com/glmcdona/FoosAI/blob/master/TrainingData/Processed/AmateurDefender/experiment.config.
+
+The settings.tsv has the list of chunk files to include for the complete training data, and also the normalizations to convert the rod positions to a floating point scale in the range 0.0 to 1.0. The first three numbers are the minimum displacements of each rod, and the last three numbers are the maximum displacement of each rod to be used in each chunk.
+
+When preparing the training data, you will want to calculate the difference in position in the next X frames as well as a training output, since this is actually what the robot can implement.
+
+I wrote code to load the video chunks and corresponding positions as training data, as well as modified the Keras image transformer to work with the video chunks to apply random transforms such as translations, rotations, skews, and zooms. You may want to use it here:
+* https://github.com/glmcdona/FoosAI/blob/master/Code/Training/video_file.py
+
+To load the training data using this class, you can instantiate a class like in the code here:
+* https://github.com/glmcdona/FoosAI/blob/master/Code/Training/TrainingFoosbot.ipynb
+
+First you create a transformer which describes how the random alterations of the video should be performed. In our case training output indices are set up as:
+* 0: Rod 1 position (goalie) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
+* 1: Rod 2 position (defencemen) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
+* 2: Rod 3 position (attackers) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
+* 3: Delta rod 1 position in 2 camera frames from now. Range is -1.0 to 1.0.
+* 4: Delta rod 2 position in 2 camera frames from now. Range is -1.0 to 1.0.
+* 5: Delta rod 3 position in 2 camera frames from now. Range is -1.0 to 1.0.
+
+```python
+from video_file import *
+transformer = VideoTransform( zoom_range=0.1,
+                              rotation_range=20,
+                              width_shift_range=0.1,
+                              height_shift_range=0.1,
+                              shear_range= 0.1,
+                              fill_mode='nearest',
+                              vertical_flip=False,
+                              horizontal_flip=True,
+                              horizontal_flip_invert_indices = [3,4,5],
+                              horizontal_flip_reverse_indices = [0,1,2],
+                              data_format='channels_last' )
+```
+
+Among all the usual transforms, it also tells it that it can flip the video frames horizontally. When it flips it horizontally, it instructs it to invert the delta rod displacements, and to reverse the scale from 0.0 to 1.0 instead mapping to 1.0 to 0.0 for the rod positions. This effectively allows us to almost double our training data from our video data by flipping the frames horizontally. 
+
+Then to load the input video with this transformer, we do:
+```python
+# Paths relative to current python file.
+data_path  = ".\\..\\..\\TrainingData\\Processed\\AmateurDefender\\Result\\settings.tsv"
+
+print("Opening training frames from config %s." % (data_path))
+position_rel_indexes = [0, 2] # Predict current rod positions and future position in 2 frames
+frame_rel_indexes = [0] # Use only current video frame as input
+  training = TrainingInput(transformer, data_path, position_rel_indexes, frame_rel_indexes, 0.2)
+  training.clear_memory()
+```
+
+
 
