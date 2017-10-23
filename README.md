@@ -2,7 +2,7 @@
 This is a research project where we are automating a foosball table using robotics and deep learning.
 
 We've got a single foosball rod actuator running:
-[![Watch FoosAI](/Media/VideoCapture.png)](https://www.youtube.com/watch?v=sD1xugH3fjA "Watch FoosAI")
+[![Watch the foosball rod actuator](/Media/VideoCapture.png)](https://www.youtube.com/watch?v=sD1xugH3fjA "Watch the foosball rod actuator")
 
 Here are a couple photos:
 ![We're talking about table soccer (Foosball)](/Media/Foosball.png)
