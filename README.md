@@ -129,11 +129,113 @@ data_path  = ".\\..\\..\\TrainingData\\Processed\\AmateurDefender\\Result\\setti
 print("Opening training frames from config %s." % (data_path))
 position_rel_indexes = [0, 2] # Predict current rod positions and future position in 2 frames
 frame_rel_indexes = [0] # Use only current video frame as input
-  training = TrainingInput(transformer, data_path, position_rel_indexes, frame_rel_indexes, 0.2)
+  training = TrainingInput(transformer, data_path, position_rel_indexes, frame_rel_indexes, 0.2) # 20% validation holdout
   training.clear_memory()
 ```
 
-You can adjust the code to calculate 
+Here it only inputs the current camera frame as the model input. If you want the current camera frame and the previous two, you would set:
+```python
+position_rel_indexes = [0, -1, -2]
+```
+
+To get the first training input/output pair you can run:
+```python
+import numpy as np
+
+training.move_first_training_frame()
+(frame, position) = training.get_next_training_frame()
+
+print("Shape of training input:")
+print(np.shape(frame))
+
+print("Shape of training output:")
+print(np.shape(position))
+```
+
+This should output something like:
+```
+Shape of training input:
+(1, 54, 100, 3)
+Shape of training output:
+(6,)
+```
+
+The input format is (frames, x, y, colour channels). In this case we only input the current camera frame to the model, so the size of the first axis is 1.
+
+The corresponding output format is (rod 1 pos, rod 2 pos, rod 3 pos, rod 1 delta pos compared to 2 frames in the future, rod 2 delta pos, rod 3 delta pos).
+
+To load minibatches for training for my usage in Keras, I train it like the following:
+```
+image_height       = training.height
+image_width        = training.width
+image_depth        = training.depth
+
+def TrainGen():
+    while True:
+        #print("TrainGen restarting training input.")
+        training.move_first_training_frame()
+        (frames, output) = training.get_next_training_frame()
+        while frames is not None:
+            yield (frames, output)
+            (frames, output) = training.get_next_training_frame()
+            
+def ValidateGen():
+    while True:
+        #print("Validation restarting training input.")
+        training.move_first_validation_frame()
+        (frames, output) = training.get_next_validation_frame()
+        while frames is not None:
+            yield (frames, output)
+            (frames, output) = training.get_next_validation_frame()
+
+def TrainBatchGen(batch_size):
+    gen = TrainGen()
+    while True:
+        # Build the next batch
+        batch_frames = np.zeros(shape=(batch_size, image_depth, image_height, image_width, image_channels), dtype=np.float32)
+        batch_outputs = np.zeros(shape=(batch_size, 3), dtype=np.float32)
+        for i in range(batch_size):
+            (frames, output) = next(gen)
+            batch_frames[i,:,:,:,:] = frames
+            #batch_outputs[i,:] = output[3:6] # NOTE: This is a hackjob to get the model to ONLY predict the change in rod positions!
+            #batch_outputs[i,:] = output[0:3] # NOTE: Similarly, only predict current rod positions.
+            batch_outputs[i,:] = output # NOTE: Predict both rod positions and rod deltas
+            
+        #pp.pprint(batch_outputs)
+        yield (batch_frames, batch_outputs)
+        #pp.pprint("Yielded batch")
+        
+def ValidateBatchGen(batch_size):
+    gen = ValidateGen()
+    while True:
+        # Build the next batch
+        batch_frames = np.zeros(shape=(batch_size, image_depth, image_height, image_width, image_channels), dtype=np.float32)
+        batch_outputs = np.zeros(shape=(batch_size, 3), dtype=np.float32)
+        for i in range(batch_size):
+            (frames, output) = next(gen)
+            batch_frames[i,:,:,:,:] = frames
+            #batch_outputs[i,:] = output[3:6]
+            #batch_outputs[i,:] = output[0:3]
+            batch_outputs[i,:] = output
+        
+        #pp.pprint("Yielding batch")
+        #pp.pprint(batch_outputs)
+        yield (batch_frames, batch_outputs)
+        #pp.pprint("Yielded batch")
+
+WEIGHTS_FNAME = 'mnist_cnn_weights_%i.hdf'
+MODELS_FNAME = 'mnist_cnn_models_%i.h5'
+for epoch in range(10000):
+    print("------ Epoch %i -------" % epoch)
+    model.fit_generator(TrainBatchGen(20), 1552, epochs=1, verbose=1, callbacks=None, class_weight=None, max_q_size=10, workers=1, validation_data=ValidateBatchGen(20), validation_steps = 500, pickle_safe=False, initial_epoch=0)
+    model.save_weights(WEIGHTS_FNAME % epoch)
+    model.save(MODELS_FNAME % epoch)
+```
+
+
+
+
+
 
 
 
