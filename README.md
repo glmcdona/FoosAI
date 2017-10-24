@@ -1,5 +1,5 @@
 # FoosAI
-This is a research project where we are automating a foosball table using robotics and deep learning.
+This is a hobby research project where we are automating a foosball table using robotics and deep learning.
 
 We've got a single foosball rod actuator running:
 [![Watch the foosball rod actuator](/Media/VideoCapture.png)](https://www.youtube.com/watch?v=sD1xugH3fjA "Watch the foosball rod actuator")
