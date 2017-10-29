@@ -1,5 +1,5 @@
 # FoosAI
-This is a research project where we are automating a foosball table using robotics and deep learning.
+This is a hobby research project where we are automating a foosball table using robotics and deep learning.
 
 We've got a single foosball rod actuator running:
 [![Watch the foosball rod actuator](/Media/VideoCapture.png)](https://www.youtube.com/watch?v=sD1xugH3fjA "Watch the foosball rod actuator")
@@ -100,9 +100,9 @@ First you create a transformer which describes how the random alterations of the
 * 0: Rod 1 position (goalie) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
 * 1: Rod 2 position (defencemen) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
 * 2: Rod 3 position (attackers) from 0.0 to 1.0. 0.0 is the farthest left, 1.0 is the farthest right.
-* 3: Delta rod 1 position in 2 camera frames from now. Range is -1.0 to 1.0.
-* 4: Delta rod 2 position in 2 camera frames from now. Range is -1.0 to 1.0.
-* 5: Delta rod 3 position in 2 camera frames from now. Range is -1.0 to 1.0.
+* 3: Rod 1 position in the future after 2 more camera frames. I usually convert this to a difference from the current rod 1 position to predict the difference in position.
+* 4: Rod 2 position in the future after 2 more camera frames. I usually convert this to a difference from the current rod 2 position to predict the difference in position.
+* 5: Rod 3 position in the future after 2 more camera frames. I usually convert this to a difference from the current rod 3 position to predict the difference in position.
 
 ```python
 from video_file import *
@@ -114,8 +114,8 @@ transformer = VideoTransform( zoom_range=0.1, # +-10% zoom
                               fill_mode='nearest',
                               vertical_flip=False,
                               horizontal_flip=True,
-                              horizontal_flip_invert_indices = [3,4,5], # Invert the rod position deltas on horizontally flipped frames
-                              horizontal_flip_reverse_indices = [0,1,2], # Reverse the rod positions on horizontally flipped frames
+                              horizontal_flip_invert_indices = [],
+                              horizontal_flip_reverse_indices = [0,1,2,3,4,5], # Reverse the rod positions of all outputs (0-5) on horizontally flipped frames
                               data_format='channels_last' )
 ```
 
@@ -160,9 +160,9 @@ Shape of training output:
 (6,)
 ```
 
-The input format is (frames, x, y, colour channels). In this case we only input the current camera frame to the model, so the size of the first axis is 1.
+The input format is (frames, y, x, colour channels). In this case we only input the current camera frame to the model, so the size of the first axis is 1.
 
-The corresponding output format is (rod 1 pos, rod 2 pos, rod 3 pos, rod 1 delta pos compared to 2 frames in the future, rod 2 delta pos, rod 3 delta pos).
+The corresponding output format is (rod 1 pos, rod 2 pos, rod 3 pos, rod 1 position at 2 frames in the future, rod 2 position at 2 frames in the future, rod 3 position at 2 frames in the future).
 
 To load minibatches for training for my usage in Keras, I train it like the following:
 ```python
@@ -197,14 +197,16 @@ def TrainBatchGen(batch_size):
         for i in range(batch_size):
             (frames, output) = next(gen)
             batch_frames[i,:,:,:,:] = frames
-            #batch_outputs[i,:] = output[3:6] # NOTE: This is a hackjob to get the model to ONLY predict the change in rod positions!
-            #batch_outputs[i,:] = output[0:3] # NOTE: Similarly, only predict current rod positions.
-            batch_outputs[i,:] = output # NOTE: Predict both rod positions and rod deltas
+            batch_outputs[i,:] = output[0:3] # Train just the 3 current rod positions as outputs
+            #batch_outputs[i,:] = output[3:6] - output[0:3] # Train the difference in the three rod positions as output
+            #batch_outputs[i,:] = output
             
+        
+        #pp.pprint("Yielding batch")
         #pp.pprint(batch_outputs)
         yield (batch_frames, batch_outputs)
         #pp.pprint("Yielded batch")
-        
+
 def ValidateBatchGen(batch_size):
     gen = ValidateGen()
     while True:
@@ -214,9 +216,9 @@ def ValidateBatchGen(batch_size):
         for i in range(batch_size):
             (frames, output) = next(gen)
             batch_frames[i,:,:,:,:] = frames
-            #batch_outputs[i,:] = output[3:6]
-            #batch_outputs[i,:] = output[0:3]
-            batch_outputs[i,:] = output
+            batch_outputs[i,:] = output[0:3] # Train just the 3 current rod positions as outputs
+            #batch_outputs[i,:] = output[3:6] - output[0:3] # Train the difference in the three rod positions as output
+            #batch_outputs[i,:] = output
         
         #pp.pprint("Yielding batch")
         #pp.pprint(batch_outputs)
