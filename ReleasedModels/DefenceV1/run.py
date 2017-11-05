@@ -11,6 +11,9 @@ pp = pprint.PrettyPrinter(depth=6)
 #from tensorflow.python.client import device_lib
 #print(device_lib.list_local_devices())
 
+import serial # conda install pyserial
+import struct
+
 class Viewpoint(object):
 	def __init__(self, cam_x, cam_y, cam_w, cam_h, resize_w, resize_h):
 		self.cam_x = cam_x
@@ -50,6 +53,11 @@ class Viewpoint(object):
 		batch_data[0,0,:,:,:] = np.ascontiguousarray(norm_image)
 
 		return batch_data
+		
+	def process_frame_no_resize(self, frame):
+		# Crop the frame, resample, and normalize
+		frame_resized = frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)]
+		return frame_resized
 
 
 moving = False
@@ -72,9 +80,11 @@ def click_callback(event, x, y, flags, param):
 			moving = False
 
 class Foosbot(object):
-	def __init__(self, viewpoint, model_dpos_file, model_pos_file, video_file = 0):
+	def __init__(self, viewpoint, model_dpos_file = None, model_pos_file = None, video_file = 0, ser = None):
 		self.viewpoint = viewpoint
 		self.video = cv2.VideoCapture(video_file)
+		self.ser = ser
+		self.crop = False
 
 		# Load the models
 		self.model_dpos_file = None
@@ -97,8 +107,8 @@ class Foosbot(object):
 
 		if self.model_dpos_file is not None:
 			# Evalaute difference in position
-			#dpos = self.model_dpos_file.predict(frame)[0,:]
-			dpos = (0.0,0.0,0.0)
+			dpos = self.model_dpos_file.predict(frame)[0,:]
+			#dpos = (0.0,0.0,0.0)
 
 		return (pos, dpos)
 
@@ -124,13 +134,74 @@ class Foosbot(object):
 
 			# Evaluate the Foosbot ML models
 			(pos, dpos) = self._process_frame(frame_processed)
-
+			
+			# Output the desired rod position deltas to the Arduino driving the robot
+			if not self.ser is None:
+				self.ser.write( struct.pack('3f', *dpos) )
+				# In the arduino code to read a single float:
+				#float f;
+				#...
+				#if (Serial.readBytes((char*)&f, sizeof(f)) != sizeof(f)) {
+			
+			# Display the result
 			if display:
+				# Only display the cropped region?
+				if self.crop:
+					frame = self.viewpoint.process_frame_no_resize(frame)
+				
 				# Draw the frame
 				font = cv2.FONT_HERSHEY_SIMPLEX
-				cv2.putText(frame,'%i: outputs: (%.2f,%.2f,%.2f)' % (count, pos[0], pos[1], pos[2]),(10,50), font, 1,(255,255,255),1,cv2.LINE_AA)
 				
-				cv2.rectangle(frame, self.viewpoint.top_left(), self.viewpoint.bottom_right(), (255,0,0), 2 )
+				cv2.putText(frame,'%i' % (count),(10,50), font, 1,(255,255,255),1,cv2.LINE_AA)
+				if not dpos is None:
+					line_step = 20
+					x = 10
+					y = 90
+					arrow_x = 120
+					arrow_width = 200
+					
+					cv2.putText(frame,'FoosAI dPos:',(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (dpos[2]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.arrowedLine(frame, (int(arrow_x+arrow_width/2),int(y-line_step/2)), (int(arrow_x+arrow_width/2 + dpos[2]*arrow_width*5),int(y-line_step/2)), (255,0,0), thickness=3)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (dpos[1]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.arrowedLine(frame, (int(arrow_x+arrow_width/2),int(y-line_step/2)), (int(arrow_x+arrow_width/2 + dpos[1]*arrow_width*5),int(y-line_step/2)), (255,0,0), thickness=3)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (dpos[0]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.arrowedLine(frame, (int(arrow_x+arrow_width/2),int(y-line_step/2)), (int(arrow_x+arrow_width/2 + dpos[0]*arrow_width*5),int(y-line_step/2)), (255,0,0), thickness=3)
+					y += line_step
+					
+				if not pos is None:
+					line_step = 20
+					x = 10
+					y = 200
+					arrow_x = 120
+					arrow_width = 200
+					
+					cv2.putText(frame,'FoosAI Pos:',(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (pos[2]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width),int(y-line_step/2)), (255,255,255), thickness=5)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width*pos[2]),int(y-line_step/2)), (0,0,0), thickness=5)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (pos[1]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width),int(y-line_step/2)), (255,255,255), thickness=5)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width*pos[1]),int(y-line_step/2)), (0,0,0), thickness=5)
+					y += line_step
+					
+					cv2.putText(frame,'%.2f' % (pos[0]),(10,y), font, 1,(255,255,255),1,cv2.LINE_AA)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width),int(y-line_step/2)), (255,255,255), thickness=5)
+					cv2.line(frame, (int(arrow_x),int(y-line_step/2)), (int(arrow_x+arrow_width*pos[0]),int(y-line_step/2)), (0,0,0), thickness=5)
+					y += line_step
+				
+				if not self.crop:
+					cv2.rectangle(frame, self.viewpoint.top_left(), self.viewpoint.bottom_right(), (255,0,0), 2 )
 				
 				cv2.imshow('FoosBot',frame)
 				
@@ -139,6 +210,8 @@ class Foosbot(object):
 			key = cv2.waitKey(1) & 0xFF
 			if key == ord('q'):
 				break
+			elif key == ord('c'):
+				self.crop =  not self.crop
 			elif key == ord(' '):
 				cv2.waitKey()
 
@@ -151,16 +224,21 @@ refPt = [5,5,600+5,330+5]
 view = Viewpoint(cam_x = refPt[0], cam_y = refPt[1], cam_w = refPt[2], cam_h = refPt[3], resize_w = 100, resize_h = 54)
 
 
+print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
 if( len(sys.argv) == 2 ):
-    if sys.argv[1] == "simulate":
-        video_file = ".\\..\\..\\TrainingData\\Raw\\Am1\\out.avi"
-        foosbot = Foosbot( viewpoint = view, model_dpos_file = "config12_deltapos.h5", model_pos_file = "config12_model_posonly.hdf", video_file = video_file)
-        foosbot.run()
-    elif sys.argv[1] == "run":
-        video_file = 0 # First webcam attached to PC
-        foosbot = Foosbot( viewpoint = view, model_dpos_file = "config12_deltapos.h5", model_pos_file = "config12_model_posonly.hdf", video_file = video_file)
-        foosbot.run()
+	#ser = serial.Serial('/dev/tty.usbserial', 115200) # Communcating to the arduino controller that runs to robot
+	ser = None
+	
+	if sys.argv[1] == "simulate":
+		#video_file = ".\\..\\..\\TrainingData\\Raw\\Pro1\\2017 Hall of Fame Classic 2.mp4"
+		video_file = ".\\..\\..\\TrainingData\\Raw\\Am3\\out_fix2.avi"
+		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_55.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
+		foosbot.run()
+	elif sys.argv[1] == "run":
+		video_file = 0 # First webcam attached to PC
+		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_55.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
+		foosbot.run()
 else:
-    print("run.py <simulate OR run>")
-    
+	print("run.py <simulate OR run>")
+	
 
