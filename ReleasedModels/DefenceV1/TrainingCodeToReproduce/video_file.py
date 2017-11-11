@@ -182,6 +182,13 @@ class Chunk(object):
 			# Reached the end, clear the memory usage of this Chunk
 			self.clear_video_memory()
 			return (None, None)
+			
+	def get_training_count(self):
+		return len(self.frames_training)
+	
+	def get_validation_count(self):
+		return len(self.frames_validation)
+
 
 # Based on Keras ImageDataGenerator, but modified for video files:
 # 	https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
@@ -413,7 +420,7 @@ class TrainingInput(object):
 			return (frames, output)
 
 		return (None, None)
-
+	
 	def get_training_frames(self):
 		self.move_first_training_frame()
 		(frames, outputs) = self.get_next_training_frame()
@@ -463,3 +470,15 @@ class TrainingInput(object):
 			return (total_frames, total_outputs)
 
 		return (None, None)
+		
+	def get_training_count(self):
+		count = 0
+		for chunk in self.chunks:
+			count += chunk.get_training_count()
+		return count
+	
+	def get_validation_count(self):
+		count = 0
+		for chunk in self.chunks:
+			count += chunk.get_validation_count()
+		return count

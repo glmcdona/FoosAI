@@ -232,11 +232,11 @@ if( len(sys.argv) == 2 ):
 	if sys.argv[1] == "simulate":
 		#video_file = ".\\..\\..\\TrainingData\\Raw\\Pro1\\2017 Hall of Fame Classic 2.mp4"
 		video_file = ".\\..\\..\\TrainingData\\Raw\\Am3\\out_fix2.avi"
-		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_55.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
+		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_389.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
 		foosbot.run()
 	elif sys.argv[1] == "run":
 		video_file = 0 # First webcam attached to PC
-		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_55.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
+		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_389.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
 		foosbot.run()
 else:
 	print("run.py <simulate OR run>")
