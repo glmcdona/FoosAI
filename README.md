@@ -10,6 +10,21 @@ Here are a couple photos:
 ![The robot](/Media/FoosAI.png)
 ![Rod coupling](/Media/RodCoupling.png)
 
+Teaching FoosAI to learn to extract the current foosball rod positions using a deep learning CNN:
+
+<img src="/Media/FoosAi_TrainingData.png" width="70%" height="70%">
+
+<img src="/Media/FoosAI_TrainingResult_Pos1.png" width="50%" height="50%"><img src="/Media/FoosAI_TrainingResult_Pos2.png" width="50%" height="50%">
+
+It is then transferred to predict the future change to the rod positions, this is the control signal that drives the robot:
+
+<img src="/Media/FoosAI_TrainingResult.png" width="50%" height="50%"><img src="/Media/FoosAI_TrainingResult2.png" width="50%" height="50%">
+
+And put together evaluating the models in real-time against live webcam data, and sending the data over serial to the robot:
+
+<img src="/Media/FoosAiResults_Running.png" width="70%" height="70%">
+
+
 
 ## Overview
 
@@ -249,17 +264,24 @@ Here are a couple notes on the ML achitecture of this model:
 
 Achitecture:
 * Splits the CNN layers to a Width-Detailed and Height-Detailed CNN branches. The Width-Detailed branch pools vertically to maintain detailed positional width comparisons, before pooling horizontally afterwards to generalize. The Height-Detailed branch reduces similarly, with pooling vertically, before pooling horzontally.
-* Width-Detailed CNN branch: 1x100x54 -> 1x100x27 -> 1x100x13 -> 1x100x6 -> 1x50x6 -> 1x25x6 -> 1x12x6
-* Height-Detailed branch: 1x100x54 -> 1x50x54 -> 1x25x54 -> 1x13x54 -> 
+* Width-Detailed CNN branch: 1x100x54 -> 1x100x27 -> 1x100x13 -> 1x100x6 -> 1x50x6 -> 1x25x6 -> 1x12x6 -> 1x6x6
+* Height-Detailed branch: 1x100x54 -> 1x50x54 -> 1x25x54 -> 1x13x54 -> 1x6x54 -> 1x6x27 -> 1x6x13 -> 1x6x6
 * Runs two 3x3 kernel convolutions + max pooling per CNN layer.
 * 124 kernels are used at each convolution.
 * Each CNN branch runs 6 of these CNN layer stacks.
-* The two branches are flattened and inputted to a fully connected neural network, this produces just over 13k inputs to the fully-connected layer.
-* Fully connected neural network layers with 50% dropout runs 256->128->64-> 3 outputs
+* The two branches are flattened and inputted to a fully connected neural network.
+* Fully connected neural network layers with 50% dropout runs 128->128->64-> 3 linear outputs
+* Produces 4.8 million trainable parameters.
 
 Training:
+
 * Trained for 12 hours on my personal PC to learn to only output the three rod positions. The theory is that this teaches it to learn how to understand the rod positions.
 * The resulting model is then taken, and instead trained where the output is the change in rod position over the next 3 camera frames. This is a much harder problem and it was trained for 6 straight days until it began overfitting.
+
+* Trained on my desktop with a midrange graphics card - NVIDIA GeForce GTX 950 
+* Position training on my Desktop took around 12 hours.
+* The resulting position trained model was then transferred to instead predicting different in position, it took about 24 hours of training. The theory is that it now has a lot of the filters designed to properly extract the existing rod positions.
+
 
 Running the model:
 * Runs on the graphics card of my Surface Book in realtime form webcam footage at a framerate of around 25 frames a second :)
