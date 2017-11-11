@@ -274,13 +274,9 @@ Achitecture:
 * Produces 4.8 million trainable parameters.
 
 Training:
-
+* Trained on my desktop with a midrange graphics card - NVIDIA GeForce GTX 950 
 * Trained for 12 hours on my personal PC to learn to only output the three rod positions. The theory is that this teaches it to learn how to understand the rod positions.
 * The resulting model is then taken, and instead trained where the output is the change in rod position over the next 3 camera frames. This is a much harder problem and it was trained for 6 straight days until it began overfitting.
-
-* Trained on my desktop with a midrange graphics card - NVIDIA GeForce GTX 950 
-* Position training on my Desktop took around 12 hours.
-* The resulting position trained model was then transferred to instead predicting different in position, it took about 24 hours of training. The theory is that it now has a lot of the filters designed to properly extract the existing rod positions.
 
 
 Running the model:
