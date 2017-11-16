@@ -36,7 +36,7 @@ class Recording(object):
         
         # Files
         self.file_avi = os.path.join(base_path, self.root.find("RECORDING").find("AVI").text)
-        self.frame_start = int(self.root.find("RECORDING").find("ACCELRATIONFRAMESTART").text)
+        self.frame_start = int(self.root.find("RECORDING").find("STARTFRAME").text)
         self.frame_end = int(self.root.find("RECORDING").find("ENDFRAME").text)
         
         # Rod tracking settings

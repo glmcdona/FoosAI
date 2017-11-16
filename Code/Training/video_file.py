@@ -88,7 +88,7 @@ class Chunk(object):
 			frame_index = 0
 			while( cap.isOpened() ):
 				ret, frame = cap.read()
-				if ret == True and frame is not None:
+				if ret == True and frame is not None and self.video_data is not None:
 					self.video_data[frame_index,:,:,:] = self._read_frame(frame)[:,:,:]
 					frame_index += 1
 				else:
@@ -159,7 +159,7 @@ class Chunk(object):
 	def get_next_training_frame(self, transformer = None):
 		# Returns:
 		# ([frames], [training outputs])
-		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_training:
+		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_training and self.video_data is not None:
 			# Load the sequence of frames
 			(frames, output) = self.get_frame(self.current_frame, transformer)
 			self.current_frame += 1
@@ -173,7 +173,7 @@ class Chunk(object):
 	def get_next_validation_frame(self, transformer = None):
 		 # Returns:
 		# ([frames], [training outputs])
-		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_validation:
+		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_validation and self.video_data is not None:
 			# Load the sequence of frames
 			(frames, output) = self.get_frame(self.current_frame, transformer)
 			self.current_frame += 1
@@ -410,14 +410,19 @@ class TrainingInput(object):
 		if self.active_chunk < len(self.chunks):
 			# Get the next training frame from the active chunk
 			(frames, output) = self.chunks[self.active_chunk].get_next_training_frame(self.transformer)
+			reset_memory = False
+			
 			if frames is None:
+				# Reset any model memory since we moved to a new chunk
+				reset_memory = True
+				
 				# Move to the next chunk
 				self.active_chunk += 1
 				if self.active_chunk < len(self.chunks):
 					self.chunks[self.active_chunk].move_first_training_frame()
-					return self.get_next_training_frame()
-
-			return (frames, output)
+					(frames, output, junk) = self.get_next_training_frame()
+			
+			return (frames, output, reset_memory)
 
 		return (None, None)
 	
@@ -443,13 +448,18 @@ class TrainingInput(object):
 		if self.active_chunk < len(self.chunks):
 			# Get the next training frame from the active chunk
 			(frames, output) = self.chunks[self.active_chunk].get_next_validation_frame()
+			reset_memory = False
+			
 			if frames is None:
+				# Reset any model memory since we moved to a new chunk
+				reset_memory = True
+				
 				# Move to the next chunk
 				self.active_chunk += 1
 				if self.active_chunk < len(self.chunks):
 					self.chunks[self.active_chunk].move_first_validation_frame()
-					return self.get_next_validation_frame()
-			return (frames, output)
+					(frames, output, junk) = self.get_next_validation_frame()
+			return (frames, output, reset_memory)
 
 		return (None, None)
 

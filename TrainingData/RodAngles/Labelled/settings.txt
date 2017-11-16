@@ -1,0 +1,5 @@
+640x180
+Aspect ratio 355 to 100
+Crop 300 pixels from vertical to bring it from 480->180
+
+Up forward is 1. Up backwards is -1. 0 is straight donw.
