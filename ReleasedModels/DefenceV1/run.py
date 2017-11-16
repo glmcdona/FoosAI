@@ -137,11 +137,16 @@ class Foosbot(object):
 			
 			# Output the desired rod position deltas to the Arduino driving the robot
 			if not self.ser is None:
-				self.ser.write( struct.pack('3f', *dpos) )
+				#self.ser.write( struct.pack('3f', *dpos) )
+				self.ser.write( (str(dpos[1]) + "\n").encode() )
 				# In the arduino code to read a single float:
 				#float f;
 				#...
 				#if (Serial.readBytes((char*)&f, sizeof(f)) != sizeof(f)) {
+			
+			if ser.inWaiting() >= 0:
+				line = self.ser.read(ser.inWaiting()) 
+				print("Serial: " + str(line))
 			
 			# Display the result
 			if display:
@@ -226,8 +231,8 @@ view = Viewpoint(cam_x = refPt[0], cam_y = refPt[1], cam_w = refPt[2], cam_h = r
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
 if( len(sys.argv) == 2 ):
-	#ser = serial.Serial('/dev/tty.usbserial', 115200) # Communcating to the arduino controller that runs to robot
-	ser = None
+	ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
+	#ser = None
 	
 	if sys.argv[1] == "simulate":
 		#video_file = ".\\..\\..\\TrainingData\\Raw\\Pro1\\2017 Hall of Fame Classic 2.mp4"
@@ -235,7 +240,7 @@ if( len(sys.argv) == 2 ):
 		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_389.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
 		foosbot.run()
 	elif sys.argv[1] == "run":
-		video_file = 0 # First webcam attached to PC
+		video_file = 2 # First webcam attached to PC
 		foosbot = Foosbot( ser = ser, viewpoint = view, model_dpos_file = "dpos_cnn_models_389.h5", model_pos_file = "pos_cnn_models_10.h5", video_file = video_file)
 		foosbot.run()
 else:
