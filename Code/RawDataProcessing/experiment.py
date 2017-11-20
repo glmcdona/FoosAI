@@ -1,5 +1,6 @@
 from chunk import *
 from recording import *
+from recording_defined_output import *
 
 import pprint
 pp = pprint.PrettyPrinter(depth=6)
@@ -29,6 +30,12 @@ class Experiment(object):
 		for recording in self.root.find("RECORDINGS").iter("RECORDING"):
 			recording_path = os.path.join(self.base_path, recording.text)
 			self.recordings.append( Recording(recording_path) )
+		
+		# Defined-output recordings
+		self.defined_output_recordings = []
+		for recording in self.root.find("RECORDINGS").iter("DEFINED_OUTPUT_RECORDING"):
+			recording_path = os.path.join(self.base_path, recording.text)
+			self.defined_output_recordings.append( RecordingDefinedOutput(recording_path) )
 		
 	def process(self):
 		# Process the recordings into continuous valid chunks
@@ -124,3 +131,55 @@ class Experiment(object):
 					f_settings.write("\t%i" % value)
 				f_settings.write("\n")
 			f_settings.close()
+		
+		for recording in self.defined_output_recordings:
+			# Process the chunks from this recording
+			print("Processing recording %s into training chunks..." % recording.recording_file)
+			chunk = None
+			recording.initialize()
+			frame_count = 0
+			
+			chunk_files = []
+			
+			while recording.has_more:
+				(frame, output) = recording.get_next_frame()
+				
+				if chunk is not None and frame is None:
+					# Chunk is finished.
+					print("Frame %i. Chunk finished." % (frame_count))
+					(video_file, position_file) = chunk.write()
+					if video_file != None:
+						chunk_files.append([video_file, position_file])
+					chunk = None
+				elif chunk is None and frame is not None:
+					# Start of a new chunk
+					print("Started new chunk %i at frame %i." % (chunk_number, frame_count))
+					chunk = Chunk(self.output_folder, chunk_number, (self.output_width, self.output_height),self.chunk_min_frames)
+					chunk_number += 1
+					
+				if chunk is not None and frame is not None:
+					# Log this chunk
+					positions = []
+					for idx, column in enumerate(self.output_columns):
+						positions.append(str(output[column]))
+					
+					chunk.add_frame(frame, positions)
+				
+				if (frame_count % 100) == 0 and chunk is not None:
+					print("Processed %i of %i frames. Added %i frames to chunk so far. On chunk %i in %s." % (frame_count,recording.num_frames, chunk.get_count(), chunk_number-1,recording.recording_file))
+				
+				frame_count += 1
+			
+			# Write the final chunk
+			if chunk is not None:
+				(video_file, position_file) = chunk.write()
+				if video_file is not None:
+					chunk_files.append([video_file, position_file])
+			
+			# Write the list of chunks
+			f_settings = open(os.path.join(self.output_folder, "settings.tsv"), "a")
+			for chunk_file in chunk_files:
+				f_settings.write("\t".join(chunk_file))
+				f_settings.write("\n")
+			f_settings.close()
+

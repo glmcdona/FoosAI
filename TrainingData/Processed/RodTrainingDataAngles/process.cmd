@@ -1,0 +1,1 @@
+python ..\..\..\Code\RawDataProcessing\raw_data_processing.py process experiment.config
