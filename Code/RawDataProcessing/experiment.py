@@ -1,6 +1,7 @@
 from chunk import *
 from recording import *
 from recording_defined_output import *
+import keras
 
 import pprint
 pp = pprint.PrettyPrinter(depth=6)
@@ -25,18 +26,38 @@ class Experiment(object):
 		self.output_width = int(self.root.find("PROCESSING").find("VIDEO").find("SIZE").find("W").text)
 		self.output_height = int(self.root.find("PROCESSING").find("VIDEO").find("SIZE").find("H").text)
 		
+		# Load any rod blackouts
+		self.blackouts = []
+		if self.root.find("BLACKOUTS") is not None:
+			for blackout in self.root.find("BLACKOUTS").iter("BLACKOUT"):
+				self.blackouts.append(blackout.text)
+		
+		# Load the defined ML models
+		self.models = {}
+		for model in self.root.find("MODELS").iter("MODEL"):
+			model_path = os.path.join(self.base_path, model.find("FILE").text)
+			model_name = model.find("NAME").text
+			print("Loading model %s from %s." % (model_name, model_path))
+			self.models[model_name] = {'model':keras.models.load_model(model_path), 'width':int(model.find("SIZE").text.split(",")[0]), 'height':int(model.find("SIZE").text.split(",")[1])}
+			print("Done loading model %s." % model_name)
+		
 		# Recordings
 		self.recordings = []
 		for recording in self.root.find("RECORDINGS").iter("RECORDING"):
 			recording_path = os.path.join(self.base_path, recording.text)
-			self.recordings.append( Recording(recording_path) )
+			self.recordings.append( Recording(recording_path, self.models, self.blackouts) )
 		
 		# Defined-output recordings
 		self.defined_output_recordings = []
 		for recording in self.root.find("RECORDINGS").iter("DEFINED_OUTPUT_RECORDING"):
 			recording_path = os.path.join(self.base_path, recording.text)
-			self.defined_output_recordings.append( RecordingDefinedOutput(recording_path) )
-		
+			self.defined_output_recordings.append( RecordingDefinedOutput(recording_path, self.models) )
+	
+	def play(self):
+		# Play the recordings
+		for recording in self.recordings:
+			recording.play()
+	
 	def process(self):
 		# Process the recordings into continuous valid chunks
 		chunk_number = 0
@@ -104,7 +125,7 @@ class Experiment(object):
 								chunk_positions_min[idx] = min(chunk_positions_min[idx], rod_positions[column])
 								chunk_positions_max[idx] = max(chunk_positions_max[idx], rod_positions[column])
 					
-					chunk.add_frame(frame, positions)
+					chunk.add_frame(frame, frame_with_markup, positions)
 				
 				if (frame_count % 100) == 0 and chunk is not None:
 					print("Processed %i of %i frames. Added %i frames to chunk so far. On chunk %i in %s." % (frame_count,recording.num_frames, chunk.get_count(), chunk_number-1,recording.recording_file))

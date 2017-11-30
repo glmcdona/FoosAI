@@ -10,6 +10,7 @@ class Chunk():
 		self.minimum_length = minimum_length
 		
 		self.frames = []
+		self.frames_with_markup = []
 		self.positions = []
 	
 	def write(self):
@@ -26,6 +27,14 @@ class Chunk():
 				video.write(frame)
 			video.release()
 			
+			# Write the debug chunk
+			fourcc = cv2.VideoWriter_fourcc(*'H264')
+			file_video = os.path.join(self.result_folder, "chunk%i_debug.avi" % self.chunk_number)
+			video = cv2.VideoWriter( file_video, fourcc, 30.0, (self.frames_with_markup[0].shape[1], self.frames_with_markup[0].shape[0]) )
+			for frame in self.frames_with_markup:
+				video.write(frame)
+			video.release()
+			
 			file_output = os.path.join(self.result_folder, "chunk%i.tsv" % self.chunk_number)
 			f_positions = open( file_output, "w")
 			f_positions.write("\n".join(self.positions))
@@ -35,10 +44,11 @@ class Chunk():
 		
 		return (None, None)
 	
-	def add_frame(self, frame, positions):
+	def add_frame(self, frame, frame_with_markup, positions):
 		# Add the frame
 		resized_frame = cv2.resize(frame, self.size, interpolation=cv2.INTER_AREA) 
 		self.frames.append( resized_frame )
+		self.frames_with_markup.append( frame_with_markup )
 		
 		# Add the positions
 		self.positions.append("\t".join(positions))

@@ -1,6 +1,7 @@
 # Model files
 *.h5
 *.hdf
+*debug.avi
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

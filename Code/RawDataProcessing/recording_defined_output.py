@@ -29,7 +29,7 @@ def click_callback(event, x, y, flags, param):
 		cropping = True
 
 class RecordingDefinedOutput(object):
-	def __init__(self, recording_file):
+	def __init__(self, recording_file, models):
 		self.recording_file = recording_file
 		self.tree = ET.parse(recording_file)
 		self.root = self.tree.getroot()

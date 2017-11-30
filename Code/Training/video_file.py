@@ -5,8 +5,9 @@ import sys
 import os
 import csv
 import numpy as np
+import random
 from random import randint
-from random import shuffle
+
 import threading
 
 from PIL import Image
@@ -23,89 +24,77 @@ class Chunk(object):
 	Simple class that wraps video frames loaded in memory
 	'''
 
-	def __init__(self, video_file, position_file, min_positions, max_positions, position_rel_indexes, frame_rel_indexes, validation_rate):
+	def __init__(self, video_file, position_file, min_positions, max_positions, position_rel_indexes, frame_rel_indexes, validation_rate, shuffle, transformer = None):
 		# Load the position data for each frame
 		f = open(position_file)
 		self.positions = []
 		for line in f.readlines():
-			self.positions.append( list(map(int, line.split("\t")) ) )
+			self.positions.append( list(map(float, line.split("\t")) ) )
 		f.close()
-
+		
+		self.transformer = transformer
+		
 		# Normalize the position data on the range [0.0, 1.0]
 		self.positions_norm = []
 		for position in self.positions:
 			for idx, value in enumerate(position):
-				position[idx] = float(position[idx] - min_positions[idx]) / float(max_positions[idx] - min_positions[idx])
-				# TODO: BRING THESE BACK
-				#position[idx] = min(1.0, position[idx])
-				#position[idx] = max(0.0, position[idx])
+				if min_positions is not None and max_positions is not None:
+					position[idx] = float(position[idx] - min_positions[idx]) / float(max_positions[idx] - min_positions[idx])
+					if position[idx] < 0:
+						position[idx] = 0
+					if position[idx] > 1:
+						position[idx] = 1
 			self.positions_norm.append(position)
+		
 		self.output_size = len(self.positions_norm[0])*len(position_rel_indexes)
+		#pp.pprint("Output size %i" % (self.output_size))
 
 		# Camera frames in memory
 		self.validation_rate = validation_rate
 		self.video_file = video_file
-		self.is_video_loaded = False
-		self.video_data = None
 
 		print(self.video_file)
 		video_reader = imageio.get_reader(self.video_file)
 		self.num_frames   = len(video_reader)
-		first_frame = video_reader.get_data(0)
+		first_frame = self._normalize_frame(video_reader.get_data(0))
+		self.input_width = np.shape(first_frame)[1]
+		self.input_height = np.shape(first_frame)[0]
+		
+		if self.transformer is not None:
+			(first_frame, junk) = self.transformer._process_frame(first_frame, [0]*500)
+			
+		
+		pp.pprint(np.shape(first_frame))
 		self.width = np.shape(first_frame)[1]
 		self.height = np.shape(first_frame)[0]
+		
 		#pp.pprint("Width: %i, Height %i" % (self.width, self.height))
 		video_reader.close()
+		
+		self.reader = cv2.VideoCapture(self.video_file)
+		self.lock = threading.Lock()
 
-		self.frames_training = range(round(self.num_frames * (1.0-validation_rate)) )
-		self.frames_validation = range(max(self.frames_training)+1, self.num_frames)
+		frames = list(range(-min(frame_rel_indexes), self.num_frames - max(position_rel_indexes) ))
+		
+		if shuffle:
+			# Pick random frames for validation and training
+			random.shuffle(frames)
+		
+		self.frames_training = frames[0:round(self.num_frames * (1.0-validation_rate))]
+		self.frames_validation = frames[round(self.num_frames * (1.0-validation_rate)):-1]
+		self.size_training = len(self.frames_training)
+		self.size_validation = len(self.frames_validation)
 
-
-
-		self.current_frame = -min(frame_rel_indexes)
+		self.current_frame_training = 0
+		self.current_frame_validation = 0
 		self.position_rel_indexes = position_rel_indexes
-		#self.position_diff_rel_indexes = position_diff_rel_indexes
 		self.frame_rel_indexes = frame_rel_indexes
-
-		self.move_first_validation_frame()
-		self.size_validation = 0
-		while self.get_next_validation_frame()[0] is not None:
-			self.size_validation += 1
-
-		self.move_first_training_frame()
-		self.size_training = 0
-		while self.get_next_training_frame()[0] is not None:
-			self.size_training += 1
-
-
-
-	def _load_video_memory(self):
-		# video_data: [frame#, x, y, channels]
-		if not self.is_video_loaded:
-			#print("Loading video into memory from %s..." % self.video_file)
-			cap = cv2.VideoCapture(self.video_file)
-			self.video_data = np.zeros(shape=(self.num_frames, self.height, self.width, 3), dtype=np.float32)
-			frame_index = 0
-			while( cap.isOpened() ):
-				ret, frame = cap.read()
-				if ret == True and frame is not None and self.video_data is not None:
-					self.video_data[frame_index,:,:,:] = self._read_frame(frame)[:,:,:]
-					frame_index += 1
-				else:
-					break
-
-			#print("Loaded %i of %i frames of video into memory." % ( frame_index, self.num_frames))
-			self.is_video_loaded = True
-
-			cap.release()
-
-	def clear_video_memory(self):
-		#print("Clearing video memory...")
-		self.video_data = None
-		self.is_video_loaded = False
-		pass
-
-	def _read_frame(self, data):
+		
+		self.shuffle = shuffle
+		
+		self.reset()
+	
+	def _normalize_frame(self, data):
 		'''
 		Based on http://vlg.cs.dartmouth.edu/c3d/c3d_video.pdf
 		crop.
@@ -119,68 +108,71 @@ class Chunk(object):
 		# (height, width, channels)
 		return np.ascontiguousarray(norm_image)
 
-	def move_first_training_frame(self):
-		self.current_frame = -min(self.frame_rel_indexes)
-		self._load_video_memory()
-
-	def move_first_validation_frame(self):
-		self.current_frame = min(self.frames_validation) - min(self.frame_rel_indexes)
-		self._load_video_memory()
-
-	def move_to_frame(self, index):
-		self.current_frame = max(-min(self.frame_rel_indexes), index)
-		self._load_video_memory()
-
-	def get_frame(self, index, transformer = None):
-		# Load the sequence of frames
-		frames = np.zeros(shape=(len(self.frame_rel_indexes), np.size(self.video_data,1), np.size(self.video_data,2), 3), dtype=np.float32)
-		for idx, rel_idx in enumerate(self.frame_rel_indexes):
-			frames[idx, :, :, :] = self.video_data[index + rel_idx,:,:,:]
-
+	def get_frame(self, index):
+		# video_data: [frame#, x, y, channels]
+		
+		# Prepare the frames
+		with self.lock:
+			frames = np.zeros(shape=(len(self.frame_rel_indexes), self.input_height, self.input_width, 3), dtype=np.float32)
+			count = 0
+			for idx, rel_idx in enumerate(self.frame_rel_indexes):
+				if self.reader.isOpened():
+					self.reader.set(1, index + rel_idx)
+					ret, frame = self.reader.read()
+					if ret == True and frame is not None:
+						frames[idx, :, :, :] = self._normalize_frame(frame)[:,:,:]
+						count += 1
+					else:
+						break
+		
+		if count != len(self.frame_rel_indexes):
+			return (None, None)
+		
 		# Load the sequence of output positions
 		output = []
 		for idx, rel_idx in enumerate(self.position_rel_indexes):
-			#pp.pprint(self.positions_norm)
-			#pp.pprint(self.positions_norm[int(index+rel_idx)][:])
 			output += list(self.positions_norm[index+rel_idx][:])
 
 
-		if transformer is None:
+		if self.transformer is None:
 			return (frames, output)
 
-		(frames, output_new) = transformer.process_set(frames, output)
+		#(frames, output_new) = transformer.process_set(frames, output)
 		#print("Before:")
 		#pp.pprint(output)
 		#print("After:")
 		#pp.pprint(output_new)
-		return transformer.process_set(frames, output_new)
+		return self.transformer.process_set(frames, output)
 
+	def reset(self):
+		if self.shuffle:
+			random.shuffle(self.frames_training)
+		self.current_frame_training = 0
+		self.current_frame_validation = 0
 
-	def get_next_training_frame(self, transformer = None):
+	def get_next_training_frame(self):
 		# Returns:
 		# ([frames], [training outputs])
-		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_training and self.video_data is not None:
+		if self.current_frame_training < len(self.frames_training):
 			# Load the sequence of frames
-			(frames, output) = self.get_frame(self.current_frame, transformer)
-			self.current_frame += 1
+			(frames, output) = self.get_frame( self.frames_training[self.current_frame_training])
+			self.current_frame_training += 1
 			return (frames, output)
 		else:
-			# Reached the end, clear the memory usage of this Chunk
-			self.clear_video_memory()
+			# Reached the end
 			return (None, None)
 
 
-	def get_next_validation_frame(self, transformer = None):
+	def get_next_validation_frame(self):
 		 # Returns:
 		# ([frames], [training outputs])
-		if self.is_video_loaded == True and self.current_frame + max(self.position_rel_indexes) + 1 in self.frames_validation and self.video_data is not None:
+		if self.current_frame_validation < len(self.frames_validation):
 			# Load the sequence of frames
-			(frames, output) = self.get_frame(self.current_frame, transformer)
-			self.current_frame += 1
+			(frames, output) = self.get_frame( self.frames_validation[self.current_frame_validation])
+			self.current_frame_validation += 1
 			return (frames, output)
 		else:
-			# Reached the end, clear the memory usage of this Chunk
-			self.clear_video_memory()
+			# Reached the end
 			return (None, None)
 			
 	def get_training_count(self):
@@ -194,7 +186,7 @@ class Chunk(object):
 # 	https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
 class VideoTransform():
 	# Transforms a frame+output pair for better generalization
-	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None):
+	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None, random_crop=None):
 
 		# Camera frame transform logic
 		self.cval = 0.
@@ -214,6 +206,7 @@ class VideoTransform():
 		self.seed = 1
 		self.seed_random = 1
 		self.prng = np.random.RandomState(self.seed)
+		self.random_crop = random_crop
 
 		# Zoom range
 		if np.isscalar(zoom_range):
@@ -239,6 +232,11 @@ class VideoTransform():
 
 	def process_set(self, frames, output):
 		# frames: (frame #, row, col, channels)
+		
+		if self.random_crop is None:
+			output_frames = frames
+		else:
+			output_frames = np.zeros(shape=(frames.shape[0], self.random_crop[0], self.random_crop[1], 3), dtype=np.float32)
 
 		# Transform the frames + output pair with the random transforms. They all use the same seed.
 		self.new_random_transform()
@@ -247,19 +245,20 @@ class VideoTransform():
 		# transform to the whole set of input frames. This may be important for RNN batches or multiple frame inputs.
 		processed_output = False
 		#print(frames.shape[self.frame_axis])
-		for i in range(frames.shape[self.frame_axis]):
+		for i in range(output_frames.shape[self.frame_axis]):
 			if not processed_output:
-				(frames[i], output) = self._process_frame( frames[i], output )
+				(output_frames[i], output) = self._process_frame( frames[i], output )
 				processed_output = True
 			else:
-				(frames[i], junk) = self._process_frame( frames[i], output )
+				(output_frames[i], junk) = self._process_frame( frames[i], output )
 
-		return (frames, output)
+		return (output_frames, output)
 
 	def _process_frame(self, frame, output):
 		# x is a single image, so it doesn't have image number at index 0
 		x = frame
 		y = output
+		
 		img_row_axis = self.row_axis - 1
 		img_col_axis = self.col_axis - 1
 		img_channel_axis = self.channel_axis - 1
@@ -339,14 +338,22 @@ class VideoTransform():
 		if self.vertical_flip:
 			if prng.uniform() < 0.5:
 				x = flip_axis(x, img_row_axis)
-
+		
+		# Apply the random cropping
+		if self.random_crop is not None:
+			result = np.zeros(shape=(self.random_crop[0], self.random_crop[1], 3), dtype=np.float32)
+			top_x = round(prng.uniform(0,x.shape[0]-self.random_crop[0]))
+			top_y = round(prng.uniform(0,x.shape[1]-self.random_crop[1]))
+			result = x[top_x:top_x+self.random_crop[0],top_y:top_y+self.random_crop[1],:]
+			x = result
+		
 		return (x, y)
 
 
 
 
 class TrainingInput(object):
-	def __init__(self, transformer, settings_file, position_rel_indexes, frame_rel_indexes, valdiation_rate):
+	def __init__(self, transformer, settings_file, position_rel_indexes, frame_rel_indexes, valdiation_rate, shuffle_frames=True, shuffle_chunks=True):
 		self.base_path = os.path.dirname(settings_file)
 
 		# Create the chunks
@@ -363,16 +370,21 @@ class TrainingInput(object):
 		self.size_validation = 0
 		self.transformer = transformer
 		self.lock = threading.Lock()
+		self.shuffle_frames = shuffle_frames
+		self.shuffle_chunks = shuffle_chunks
 
 		for row in f.readlines():
 			tokens = row.replace("\n","").split("\t")
 			num_columns = len(tokens[2:])
-
-			min_range = list(map(int, tokens[2:int(2+num_columns/2)]))
-			max_range = list(map(int, tokens[int(2+num_columns/2):]))
+			
+			min_range = None
+			max_range = None
+			if num_columns > 0:
+				min_range = list(map(int, tokens[2:int(2+num_columns/2)]))
+				max_range = list(map(int, tokens[int(2+num_columns/2):]))
 
 			print("Creating training chunk from %s" % os.path.join(self.base_path, tokens[0]))
-			chunk = Chunk(os.path.join(self.base_path, tokens[0]), os.path.join(self.base_path, tokens[1]), min_range, max_range, position_rel_indexes, frame_rel_indexes, valdiation_rate)
+			chunk = Chunk(os.path.join(self.base_path, tokens[0]), os.path.join(self.base_path, tokens[1]), min_range, max_range, position_rel_indexes, frame_rel_indexes, valdiation_rate, shuffle_frames, transformer)
 			self.length += chunk.num_frames
 			self.width = chunk.width
 			self.height = chunk.height
@@ -383,71 +395,55 @@ class TrainingInput(object):
 			print("added %i new frames for a total of %i" % (chunk.num_frames, self.length))
 			self.chunks.append(chunk)
 
+		self.chunk_order = list(range(len(self.chunks)))
+		self.reset()
 
+	def reset(self):
 		self.active_chunk = 0
-
-	def clear_memory(self):
+		if self.shuffle_chunks:
+			random.shuffle(self.chunk_order)
+		
 		for chunk in self.chunks:
-			chunk.clear_video_memory()
+			chunk.reset()
 
 	def move_first_training_frame(self):
 		self.active_chunk = 0
 
-		self.clear_memory()
-
-		if len(self.chunks) > 0 :
-			self.chunks[0].move_first_training_frame()
+		self.reset()
 
 	def move_first_validation_frame(self):
 		self.active_chunk = 0
 
-		self.clear_memory()
-
-		if len(self.chunks) > 0 :
-			self.chunks[0].move_first_validation_frame()
+		self.reset()
 
 	def get_next_training_frame(self):
 		if self.active_chunk < len(self.chunks):
 			# Get the next training frame from the active chunk
-			(frames, output) = self.chunks[self.active_chunk].get_next_training_frame(self.transformer)
+			(frames, output) = self.chunks[self.chunk_order[self.active_chunk]].get_next_training_frame()
 			reset_memory = False
+			
+			if self.shuffle_chunks:
+				self.active_chunk += 1
+				if self.active_chunk >= len(self.chunks):
+					self.active_chunk = 0
+					random.shuffle(self.chunk_order)
 			
 			if frames is None:
 				# Reset any model memory since we moved to a new chunk
 				reset_memory = True
+				self.reset() # reset when any chunk is out of frames
 				
-				# Move to the next chunk
-				self.active_chunk += 1
-				if self.active_chunk < len(self.chunks):
-					self.chunks[self.active_chunk].move_first_training_frame()
-					(frames, output, junk) = self.get_next_training_frame()
+				(frames, output, junk) = self.get_next_training_frame()
 			
 			return (frames, output, reset_memory)
-
-		return (None, None)
-	
-	def get_training_frames(self):
-		self.move_first_training_frame()
-		(frames, outputs) = self.get_next_training_frame()
-
-		if frames is not None:
-			total_frames = np.zeros(shape=((self.size_training,) + np.shape(frames)))
-			total_outputs = np.zeros(shape=((self.size_training,) + np.shape(outputs)))
-
-			i = 0
-			while frames is not None:
-				total_frames[i] = frames
-				total_outputs[i] = outputs
-				(frames, outputs) = self.get_next_training_frame()
-				i += 1
-			return (total_frames, total_outputs)
-
-		return (None, None)
+			
+		
+		return (None, None, None)
 
 	def get_next_validation_frame(self):
 		if self.active_chunk < len(self.chunks):
-			# Get the next training frame from the active chunk
-			(frames, output) = self.chunks[self.active_chunk].get_next_validation_frame()
+			# Get the next validation frame from the active chunk
+			(frames, output) = self.chunks[self.chunk_order[self.active_chunk]].get_next_validation_frame()
 			reset_memory = False
 			
 			if frames is None:
@@ -457,29 +453,12 @@ class TrainingInput(object):
 				# Move to the next chunk
 				self.active_chunk += 1
 				if self.active_chunk < len(self.chunks):
-					self.chunks[self.active_chunk].move_first_validation_frame()
+					self.chunks[self.chunk_order[self.active_chunk]].reset()
 					(frames, output, junk) = self.get_next_validation_frame()
+			
 			return (frames, output, reset_memory)
 
-		return (None, None)
-
-	def get_validation_frames(self):
-		self.move_first_validation_frame()
-		(frames, outputs) = self.get_next_validation_frame()
-
-		if frames is not None:
-			total_frames = np.zeros(shape=((self.size_validation,) + np.shape(frames)))
-			total_outputs = np.zeros(shape=((self.size_validation,) + np.shape(outputs)))
-
-			i = 0
-			while frames is not None:
-				total_frames[i] = frames
-				total_outputs[i] = outputs
-				(frames, outputs) = self.get_next_validation_frame()
-				i += 1
-			return (total_frames, total_outputs)
-
-		return (None, None)
+		return (None, None, None)
 		
 	def get_training_count(self):
 		count = 0

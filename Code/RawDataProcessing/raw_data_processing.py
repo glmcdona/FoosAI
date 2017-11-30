@@ -20,6 +20,11 @@ elif( sys.argv[1] == "play" ):
 	print("Playing recording config frames from path %s." % (sys.argv[2]))
 	rec = Recording(sys.argv[2])
 	rec.play()
+elif( sys.argv[1] == "playexp" ):
+	# Play the video live
+	print("Playing experiment config frames from path %s." % (sys.argv[2]))
+	exp = Experiment(sys.argv[2])
+	exp.play()
 elif( sys.argv[1] == "process" ):
 	print("Processing experimient config frames from path %s." % (sys.argv[2]))
 	exp = Experiment(sys.argv[2])

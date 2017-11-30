@@ -27,17 +27,19 @@ def click_callback(event, x, y, flags, param):
 		cropping = True
 
 class Recording(object):
-	def __init__(self, recording_file):
+	def __init__(self, recording_file, models, blackouts):
 		self.recording_file = recording_file
 		self.tree = ET.parse(recording_file)
 		self.root = self.tree.getroot()
 		base_path = os.path.dirname(recording_file)
 		
-		# CROP
+		# Blackouts to hide any rods
+		self.blackouts = blackouts # List of rod names to hide
+		
+		# Crop
 		self.crop = None
 		if self.root.find("CROP") is not None:
 			self.crop = xml_load_rect(self.root.find("CROP").find("RECT"))
-		
 		
 		# Files
 		self.file_avi = os.path.join(base_path, self.root.find("RECORDING").find("AVI").text)
@@ -45,17 +47,30 @@ class Recording(object):
 		self.frame_end = int(self.root.find("RECORDING").find("ENDFRAME").text)
 		
 		# Rod tracking settings
-		rod_tracking_alignment = self.root.find("RODS").find("TRACKING").find("ALIGNMENT").text
-		rod_tracking_gap_colour = xml_load_rgb(self.root.find("RODS").find("TRACKING").find("GAP_COLOUR").text)
-		rod_tracking_gap_colour_distance = int(self.root.find("RODS").find("TRACKING").find("GAP_COLOUR_DISTANCE").text)
-		rod_tracking_gap_min_size = int(self.root.find("RODS").find("TRACKING").find("GAP_MIN_SIZE").text)
-		rod_tracking_rod_width = int(self.root.find("RODS").find("TRACKING").find("ROD_WIDTH").text)
+		rod_tracking_alignment = None
+		rod_tracking_gap_colour = None
+		rod_tracking_gap_colour_distance = None
+		rod_tracking_gap_min_size = None
+		rod_tracking_rod_width = None
+		self.line_detection_frequency = 1
+		self.model = None
 		
-		if self.root.find("RODS").find("TRACKING").find("LINE_DETECTION_FREQUENCY") is None:
-			self.line_detection_frequency = 30
+		if self.root.find("RODS").find("TRACKING").find("MODEL") is not None:
+			# Load the corresponding tracking model
+			self.model = models[self.root.find("RODS").find("TRACKING").find("MODEL").text]
 		else:
-			self.line_detection_frequency = int(self.root.find("RODS").find("TRACKING").find("LINE_DETECTION_FREQUENCY").text)
-
+			# Use standard line-detection based rod tracking
+			rod_tracking_alignment = self.root.find("RODS").find("TRACKING").find("ALIGNMENT").text
+			rod_tracking_gap_colour = xml_load_rgb(self.root.find("RODS").find("TRACKING").find("GAP_COLOUR").text)
+			rod_tracking_gap_colour_distance = int(self.root.find("RODS").find("TRACKING").find("GAP_COLOUR_DISTANCE").text)
+			rod_tracking_gap_min_size = int(self.root.find("RODS").find("TRACKING").find("GAP_MIN_SIZE").text)
+			rod_tracking_rod_width = int(self.root.find("RODS").find("TRACKING").find("ROD_WIDTH").text)
+			
+			if self.root.find("RODS").find("TRACKING").find("LINE_DETECTION_FREQUENCY") is None:
+				self.line_detection_frequency = 30
+			else:
+				self.line_detection_frequency = int(self.root.find("RODS").find("TRACKING").find("LINE_DETECTION_FREQUENCY").text)
+		
 		
 		# Video file
 		self.cap = cv2.VideoCapture(self.file_avi)
@@ -66,17 +81,20 @@ class Recording(object):
 		# Rods
 		self.rods = {}
 		for rod in self.root.find("RODS").iter("ROD"):
-			if rod.find("TRACKING") is None or rod.find("TRACKING").find("LEFT") is None:
-				rod_left = None
-			else:
-				rod_left = xml_load_point(rod.find("TRACKING").find("LEFT").text)
-				
-			if rod.find("TRACKING") is None or rod.find("TRACKING").find("RIGHT") is None:
-				rod_right = None
-			else:
-				rod_right = xml_load_point(rod.find("TRACKING").find("RIGHT").text)
+			rod_left = None
+			rod_right = None
+			if self.model is not None:
+				if rod.find("TRACKING") is None or rod.find("TRACKING").find("LEFT") is None:
+					rod_left = None
+				else:
+					rod_left = xml_load_point(rod.find("TRACKING").find("LEFT").text)
+					
+				if rod.find("TRACKING") is None or rod.find("TRACKING").find("RIGHT") is None:
+					rod_right = None
+				else:
+					rod_right = xml_load_point(rod.find("TRACKING").find("RIGHT").text)
 			
-			self.rods[rod.find("NAME").text] = Rod( xml_load_rect(rod.find("RECT")),rod.find("NAME").text, rod_tracking_gap_colour, rod_tracking_gap_colour_distance, rod_tracking_gap_min_size, rod_tracking_rod_width, self.line_detection_frequency, rod_left, rod_right)
+			self.rods[rod.find("NAME").text] = Rod( xml_load_rect(rod.find("RECT")),rod.find("NAME").text, rod_tracking_gap_colour, rod_tracking_gap_colour_distance, rod_tracking_gap_min_size, rod_tracking_rod_width, self.line_detection_frequency, rod_left, rod_right, self.model)
 	
 	def __del__(self):
 		self.cap.release()
@@ -95,19 +113,19 @@ class Recording(object):
 		# Returns:
 		# (cropped frame, {rod name = rod positions})
 		if( self.cap.isOpened() and self.has_more ):
+			font = cv2.FONT_HERSHEY_SIMPLEX
 			ret, frame = self.cap.read()
 			if ret==True and self.frame < self.frame_end:
 				self.frame += 1
 				
 				frame_with_markup = frame.copy()
-				gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
-				edges = cv2.Canny(gray,50,150,apertureSize = 3)
-
-				# Cropped frame
-				if self.crop is None:
-					frame_cropped = frame
+				
+				# Only do edge-processing if we aren't using a ML model to extract position
+				if self.model is None:
+					gray = cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+					edges = cv2.Canny(gray,50,150,apertureSize = 3)
 				else:
-					frame_cropped = frame[self.crop[1]:(self.crop[1]+self.crop[3]), self.crop[0]:(self.crop[0]+self.crop[2])]
+					edges = None
 				
 				# Draw the crop box
 				if self.crop is not None:
@@ -121,38 +139,56 @@ class Recording(object):
 				failure_count = 0
 				for rod_name, rod in self.rods.items():
 					# Update rod tracking
-					if rod.rod_left is None:
+					if rod.rod_left is None and self.model is None:
 						# Update from the rod line
 						if self.frame % self.line_detection_frequency == 0:
 							rod.update_rod_line(edges)
-							
+					
 					
 					# Get this rod position
-					if rod.rod_line != None:
+					if rod.rod_line is not None or rod.model is not None:
 						(new_x, line, success) = rod.track_rod_position(frame)
 						if( not success ):
 							failure_count += 1
 						rod_positions[rod_name] = new_x
+						
 					
 					# Update the graphics
 					box = rod.box
-					cv2.rectangle(frame_with_markup, (box[0], box[1]),
+					if rod_name in self.blackouts:
+						# Black box to indicate it is being cut out
+						cv2.rectangle(frame_with_markup, (box[0], box[1]),
 										(box[0] + box[2], box[1] + box[3]), 
-										(255,0,0) );
+										(0,0,0), 2 );
+					else:
+						# Show regular box
+						cv2.rectangle(frame_with_markup, (box[0], box[1]),
+										(box[0] + box[2], box[1] + box[3]), 
+										(255,0,0), 3 );
 					
 					# Draw the rod line
 					rod_line = rod.rod_line
-					if rod_line != None:
+					if rod_line is not None:
 						cv2.line(frame_with_markup,rod_line[0],rod_line[1],(0,0,255),2)
 						
-						(new_x, line, success) = rod.track_rod_position(frame)
-						
-						if line != None:
+						if line is not None:
 							rod_offence_last_frame_x = new_x
 							cv2.line(frame_with_markup, line[0], line[1], (255,0,255), thickness=4)
+					
+					# Draw this rod position
+					cv2.putText(frame_with_markup,'Pos %.2f' % (new_x),(box[0]+30, box[1]+30), font, 1,(255,255,255),1,cv2.LINE_AA)
+					
+				# Black out the rods
+				for blackout in self.blackouts:
+					frame = self.rods[blackout].blackout(frame)
+				
+				# Crop the frame
+				if self.crop is None:
+					frame_cropped = frame
+				else:
+					frame_cropped = frame[self.crop[1]:(self.crop[1]+self.crop[3]), self.crop[0]:(self.crop[0]+self.crop[2])]
 				
 				# Add text
-				font = cv2.FONT_HERSHEY_SIMPLEX
 				cv2.putText(frame_with_markup,'%i - %i,%i: rgb: %i,%i,%i' % (self.frame, refPt[0],refPt[1],frame[refPt[1]][refPt[0]][0],frame[refPt[1]][refPt[0]][1],frame[refPt[1]][refPt[0]][2]),(10,50), font, 1,(255,255,255),1,cv2.LINE_AA)
 				
 				return (frame_cropped, frame_with_markup, rod_positions, failure_count)
