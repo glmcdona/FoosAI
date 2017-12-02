@@ -13,6 +13,7 @@ pp = pprint.PrettyPrinter(depth=6)
 
 import serial # conda install pyserial
 import struct
+import scipy.misc
 
 class ViewpointModel(object):
 	def __init__(self, name, crop, resize_w, resize_h, num_frames, model, blackouts = None):
@@ -92,6 +93,9 @@ class ViewpointModel(object):
 				frame[blackout[1]:(blackout[1] + blackout[3]), blackout[0]:(blackout[0] + blackout[2]),:] = 0
 		
 		# Crop the frame, resample, and normalize
+		#frame_resized = scipy.misc.imresize(frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)], (self.resize_h, self.resize_w) )
+		
+		#frame_crop = frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)]
 		frame_resized = cv2.resize(frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)], (self.resize_w, self.resize_h), interpolation=cv2.INTER_AREA)
 		
 		image = Image.fromarray(frame_resized)
@@ -106,7 +110,11 @@ class ViewpointModel(object):
 			self.data[0,i,:,:,:] = self.data[0,i+1,:,:,:]
 		
 		# Add the new frame
-		self.data[0,self.num_frames-1,:,:,:] = np.ascontiguousarray(norm_image)
+		self.data[0,self.num_frames-1,:,:,:] = norm_image
+		
+		#if self.name == "Rod1":
+		#	pp.pprint(self.data[0,0,:,:,:])
+		
 		cv2.imshow(self.name,self.data[0,0,:,:,:])
 		
 		return self.model.predict(self.data)[0,:]
@@ -222,13 +230,13 @@ class Foosbot(object):
 		cv2.destroyAllWindows()
 
 
-rod_model = keras.models.load_model("rod.h5")
+rod_model = keras.models.load_model("pos_cnn_models_0.h5")
 Rod1 = [0,224,640,140]
 Rod2 = [0,106,640,140]
 Rod3 = [0,20,640,140]
-model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 320, resize_h = 70, num_frames = 1, model=rod_model)
-model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 320, resize_h = 70, num_frames = 1, model=rod_model)
-model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 320, resize_h = 70, num_frames = 1, model=rod_model)
+model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
+model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
+model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
 rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
@@ -246,7 +254,7 @@ if( len(sys.argv) == 2 ):
 	
 	if sys.argv[1] == "simulate":
 		#video_file = ".\\..\\..\\TrainingData\\Raw\\Pro1\\2017 Hall of Fame Classic 2.mp4"
-		video_file = ".\\..\\..\\TrainingData\\Raw\\Am3\\out_fix2.avi"
+		video_file = ".\\..\\..\\TrainingData\\Raw\\Am1\\out.avi"
 		foosbot = Foosbot( ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
 	elif sys.argv[1] == "run":
