@@ -182,7 +182,7 @@ class Foosbot(object):
 			# Output the desired rod position deltas to the Arduino driving the robot
 			if not self.ser is None and not self.pause_output:
 				#self.ser.write( struct.pack('3f', *dpos) )
-				self.ser.write( (str(desired_rod2_pos-rods[i]) + "\n").encode() )
+				self.ser.write( (str(desired_rod2_pos-rods[controlled_rod]) + "\n").encode() )
 				# In the arduino code to read a single float:
 				#float f;
 				#...
@@ -230,6 +230,15 @@ class Foosbot(object):
 		cv2.destroyAllWindows()
 
 
+<<<<<<< HEAD
+rod_model = keras.models.load_model("rod_pos.h5")
+Rod1 = [0,224,640,140]
+Rod2 = [0,106,640,140]
+Rod3 = [0,20,640,140]
+model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
+model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
+model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
+=======
 rod_model = keras.models.load_model("pos_cnn_models_0.h5")
 Rod1 = [0,224,640,140]
 Rod2 = [0,106,640,140]
@@ -237,10 +246,11 @@ Rod3 = [0,20,640,140]
 model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
 model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
 model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
+>>>>>>> 6ba377c01e2b6784dfd3ab5223d4887802bc0734
 rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
-foos_ai_model = keras.models.load_model("2bar.h5")
+foos_ai_model = keras.models.load_model("pos_cnn_models_43.h5")
 Table = [0,0,640,360]
 global refPt
 refPt = Table
@@ -258,6 +268,8 @@ if( len(sys.argv) == 2 ):
 		foosbot = Foosbot( ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
 	elif sys.argv[1] == "run":
+		#ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
+		ser = None
 		video_file = 2 # Webcam attached to PC
 		foosbot = Foosbot( ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
