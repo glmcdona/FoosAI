@@ -230,31 +230,22 @@ class Foosbot(object):
 		cv2.destroyAllWindows()
 
 
-<<<<<<< HEAD
 rod_model = keras.models.load_model("rod_pos.h5")
-Rod1 = [0,224,640,140]
-Rod2 = [0,106,640,140]
-Rod3 = [0,20,640,140]
-model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
-model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
-model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resize_h = 30, num_frames = 1, model=rod_model)
-=======
-rod_model = keras.models.load_model("pos_cnn_models_0.h5")
 Rod1 = [0,224,640,140]
 Rod2 = [0,106,640,140]
 Rod3 = [0,20,640,140]
 model_pos_rod1 = ViewpointModel(name = "Rod1", crop = Rod1, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
 model_pos_rod2 = ViewpointModel(name = "Rod2", crop = Rod2, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
 model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resize_h = 35, num_frames = 1, model=rod_model)
->>>>>>> 6ba377c01e2b6784dfd3ab5223d4887802bc0734
+
 rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
-foos_ai_model = keras.models.load_model("pos_cnn_models_43.h5")
+foos_ai_model = keras.models.load_model("goalie.h5")
 Table = [0,0,640,360]
 global refPt
 refPt = Table
-model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resize_h = 54, num_frames = 3, model=foos_ai_model, blackouts=[Rod2])
+model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resize_h = 54, num_frames = 3, model=foos_ai_model, blackouts=[Rod1])
 
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
