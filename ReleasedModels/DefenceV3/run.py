@@ -145,11 +145,12 @@ def click_callback(event, x, y, flags, param):
 			moving = False
 
 class Foosbot(object):
-	def __init__(self, rod_models = [], foosbot_model = None, video_file = 0, ser = None):
+	def __init__(self, controlled_rod = 0, rod_models = [], foosbot_model = None, video_file = 0, ser = None):
 		self.video = cv2.VideoCapture(video_file)
 		self.ser = ser
 		self.crop = False
 		self.pause_output = False
+		self.controlled_rod = controlled_rod
 		
 		# Set the models
 		self.rod_models = rod_models
@@ -172,17 +173,17 @@ class Foosbot(object):
 
 			# Evaluate the FoosAI rod position prediction model
 			desired_rod2_pos = self.foosbot_model.process_frame(frame)
-			controlled_rod = 1 # Controlling the twobar, rod 2
 			
 			# Evaluate all the rod models
 			rods = []
 			for rod in self.rod_models:
 				rods.append(rod.process_frame(frame))
+					
 			
 			# Output the desired rod position deltas to the Arduino driving the robot
 			if not self.ser is None and not self.pause_output:
 				#self.ser.write( struct.pack('3f', *dpos) )
-				self.ser.write( (str(desired_rod2_pos-rods[controlled_rod]) + "\n").encode() )
+				self.ser.write( (str(desired_rod2_pos-rods[self.controlled_rod]) + "\n").encode() )
 				# In the arduino code to read a single float:
 				#float f;
 				#...
@@ -200,7 +201,7 @@ class Foosbot(object):
 				
 				# Draw the rod information
 				for i, rod in enumerate(self.rod_models):
-					if i == controlled_rod:
+					if i == self.controlled_rod:
 						frame = rod.draw_data(frame, "Controlled Rod", arrow_numerics = [desired_rod2_pos-rods[i]], range_numerics = [rods[i], desired_rod2_pos])
 					else:
 						frame = rod.draw_data(frame, None, arrow_numerics = None, range_numerics = [rods[i]])
@@ -250,19 +251,16 @@ model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resiz
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
 if( len(sys.argv) == 2 ):
-	#ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
-	ser = None
-	
 	if sys.argv[1] == "simulate":
+		ser = None
 		#video_file = ".\\..\\..\\TrainingData\\Raw\\Pro1\\2017 Hall of Fame Classic 2.mp4"
-		video_file = ".\\..\\..\\TrainingData\\Raw\\Am1\\out.avi"
-		foosbot = Foosbot( ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
+		video_file = ".\\..\\..\\TrainingData\\Raw\\Am2\\out.mp4"
+		foosbot = Foosbot( controlled_rod = 0, ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
 	elif sys.argv[1] == "run":
-		#ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
-		ser = None
+		ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
 		video_file = 2 # Webcam attached to PC
-		foosbot = Foosbot( ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
+		foosbot = Foosbot( controlled_rod = 0, ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
 else:
 	print("run.py <simulate OR run>")
