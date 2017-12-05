@@ -14,10 +14,29 @@ from PIL import Image
 import imageio
 import itertools as it
 
+import scipy.misc
+
 from keras.preprocessing.image import *
 
 import pprint
 pp = pprint.PrettyPrinter(depth=6)
+
+def normalize_frame(data):
+	'''
+	Based on http://vlg.cs.dartmouth.edu/c3d/c3d_video.pdf
+	crop.
+	'''
+	image = Image.fromarray(data)
+
+	norm_image = np.array(image, dtype=np.float32)
+	norm_image -= 128.0
+	norm_image /= 128.0
+
+	# (height, width, channels)
+	data = np.ascontiguousarray(norm_image)
+	#cv2.imshow("norm",data[:,:,:])
+	#cv2.waitKey(0)
+	return data
 
 class Chunk(object):
 	'''
@@ -56,7 +75,7 @@ class Chunk(object):
 		print(self.video_file)
 		video_reader = imageio.get_reader(self.video_file)
 		self.num_frames   = len(video_reader)
-		first_frame = self._normalize_frame(video_reader.get_data(0))
+		first_frame = normalize_frame(video_reader.get_data(0))
 		self.input_width = np.shape(first_frame)[1]
 		self.input_height = np.shape(first_frame)[0]
 		
@@ -94,19 +113,7 @@ class Chunk(object):
 		
 		self.reset()
 	
-	def _normalize_frame(self, data):
-		'''
-		Based on http://vlg.cs.dartmouth.edu/c3d/c3d_video.pdf
-		crop.
-		'''
-		image = Image.fromarray(data)
 
-		norm_image = np.array(image, dtype=np.float32)
-		norm_image -= 128.0
-		norm_image /= 128.0
-
-		# (height, width, channels)
-		return np.ascontiguousarray(norm_image)
 
 	def get_frame(self, index):
 		# video_data: [frame#, x, y, channels]
@@ -120,7 +127,7 @@ class Chunk(object):
 					self.reader.set(1, index + rel_idx)
 					ret, frame = self.reader.read()
 					if ret == True and frame is not None:
-						frames[idx, :, :, :] = self._normalize_frame(frame)[:,:,:]
+						frames[idx, :, :, :] = normalize_frame(frame)[:,:,:]
 						count += 1
 					else:
 						break
@@ -137,11 +144,6 @@ class Chunk(object):
 		if self.transformer is None:
 			return (frames, output)
 
-		#(frames, output_new) = transformer.process_set(frames, output)
-		#print("Before:")
-		#pp.pprint(output)
-		#print("After:")
-		#pp.pprint(output_new)
 		return self.transformer.process_set(frames, output)
 
 	def reset(self):
@@ -186,7 +188,7 @@ class Chunk(object):
 # 	https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
 class VideoTransform():
 	# Transforms a frame+output pair for better generalization
-	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None, random_crop=None):
+	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None, random_crop=None, crop=None, resize=None):
 
 		# Camera frame transform logic
 		self.cval = 0.
@@ -207,6 +209,12 @@ class VideoTransform():
 		self.seed_random = 1
 		self.prng = np.random.RandomState(self.seed)
 		self.random_crop = random_crop
+		self.crop = crop
+		self.output_size = resize
+		if self.output_size is None and self.random_crop is not None:
+			self.output_size = self.random_crop
+		elif resize is None and self.crop is not None:
+			self.output_size = [self.crop[2], self.crop[3]]
 
 		# Zoom range
 		if np.isscalar(zoom_range):
@@ -232,11 +240,10 @@ class VideoTransform():
 
 	def process_set(self, frames, output):
 		# frames: (frame #, row, col, channels)
-		
-		if self.random_crop is None:
+		if self.output_size is None:
 			output_frames = frames
 		else:
-			output_frames = np.zeros(shape=(frames.shape[0], self.random_crop[0], self.random_crop[1], 3), dtype=np.float32)
+			output_frames = np.zeros(shape=(frames.shape[0], self.output_size[0], self.output_size[1], 3), dtype=np.float32)
 
 		# Transform the frames + output pair with the random transforms. They all use the same seed.
 		self.new_random_transform()
@@ -248,16 +255,23 @@ class VideoTransform():
 		for i in range(output_frames.shape[self.frame_axis]):
 			if not processed_output:
 				(output_frames[i], output) = self._process_frame( frames[i], output )
+				output_frames[i] = output_frames[i]
 				processed_output = True
 			else:
 				(output_frames[i], junk) = self._process_frame( frames[i], output )
+				output_frames[i] = output_frames[i]
 
+		#pp.pprint(output_frames)
 		return (output_frames, output)
 
 	def _process_frame(self, frame, output):
 		# x is a single image, so it doesn't have image number at index 0
 		x = frame
 		y = output
+		
+		# Crop the frame
+		if self.crop is not None:
+			x = x[self.crop[0]:self.crop[0]+self.crop[2],self.crop[1]:self.crop[1]+self.crop[3],:]
 		
 		img_row_axis = self.row_axis - 1
 		img_col_axis = self.col_axis - 1
@@ -321,6 +335,7 @@ class VideoTransform():
 		if transform_matrix is not None:
 			h, w = x.shape[img_row_axis], x.shape[img_col_axis]
 			transform_matrix = transform_matrix_offset_center(transform_matrix, h, w)
+			
 			x = apply_transform(x, transform_matrix, img_channel_axis,
 								fill_mode=self.fill_mode, cval=self.cval)
 
@@ -346,7 +361,17 @@ class VideoTransform():
 			top_y = round(prng.uniform(0,x.shape[1]-self.random_crop[1]))
 			result = x[top_x:top_x+self.random_crop[0],top_y:top_y+self.random_crop[1],:]
 			x = result
+			
+			
+		# Apply the resize
+		if self.output_size is not None:
+			#result = np.zeros(shape=(self.output_size[0], self.output_size[1], 3), dtype=np.float32)
+			#x = scipy.misc.imresize(x, (self.output_size[0], self.output_size[1]))
+			x = cv2.resize(x, (self.output_size[1], self.output_size[0]), interpolation=cv2.INTER_AREA)
 		
+		#pp.pprint(x)
+		#cv2.imshow("norm",x[:,:,:])
+		#cv2.waitKey(0)
 		return (x, y)
 
 
