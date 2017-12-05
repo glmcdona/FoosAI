@@ -27,7 +27,7 @@ def click_callback(event, x, y, flags, param):
 		cropping = True
 
 class Recording(object):
-	def __init__(self, recording_file, models, blackouts):
+	def __init__(self, recording_file, models, blackouts, crop_to_rod):
 		self.recording_file = recording_file
 		self.tree = ET.parse(recording_file)
 		self.root = self.tree.getroot()
@@ -35,11 +35,13 @@ class Recording(object):
 		
 		# Blackouts to hide any rods
 		self.blackouts = blackouts # List of rod names to hide
-		
-		# Crop
+				
+		# Crops
 		self.crop = None
-		if self.root.find("CROP") is not None:
-			self.crop = xml_load_rect(self.root.find("CROP").find("RECT"))
+		self.crop_to_rod = crop_to_rod
+		if self.crop_to_rod is None:
+			if self.root.find("CROP") is not None:
+				self.crop = xml_load_rect(self.root.find("CROP").find("RECT"))
 		
 		# Files
 		self.file_avi = os.path.join(base_path, self.root.find("RECORDING").find("AVI").text)
@@ -94,7 +96,11 @@ class Recording(object):
 				else:
 					rod_right = xml_load_point(rod.find("TRACKING").find("RIGHT").text)
 			
-			self.rods[rod.find("NAME").text] = Rod( xml_load_rect(rod.find("RECT")),rod.find("NAME").text, rod_tracking_gap_colour, rod_tracking_gap_colour_distance, rod_tracking_gap_min_size, rod_tracking_rod_width, self.line_detection_frequency, rod_left, rod_right, self.model)
+			rod_name = rod.find("NAME").text
+			self.rods[rod_name] = Rod( xml_load_rect(rod.find("RECT")),rod_name, rod_tracking_gap_colour, rod_tracking_gap_colour_distance, rod_tracking_gap_min_size, rod_tracking_rod_width, self.line_detection_frequency, rod_left, rod_right, self.model)
+			
+			
+			
 	
 	def __del__(self):
 		self.cap.release()
@@ -187,6 +193,12 @@ class Recording(object):
 					frame_cropped = frame
 				else:
 					frame_cropped = frame[self.crop[1]:(self.crop[1]+self.crop[3]), self.crop[0]:(self.crop[0]+self.crop[2])]
+				
+				# Crop to the specific rod
+				if self.crop_to_rod is not None and self.crop_to_rod in self.rods:
+					frame_cropped = self.rods[self.crop_to_rod].get_rod_region(frame_cropped)
+				#cv2.imshow('image',frame_cropped)
+				#key = cv2.waitKey(1)
 				
 				# Add text
 				cv2.putText(frame_with_markup,'%i - %i,%i: rgb: %i,%i,%i' % (self.frame, refPt[0],refPt[1],frame[refPt[1]][refPt[0]][0],frame[refPt[1]][refPt[0]][1],frame[refPt[1]][refPt[0]][2]),(10,50), font, 1,(255,255,255),1,cv2.LINE_AA)

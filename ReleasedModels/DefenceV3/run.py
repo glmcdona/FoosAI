@@ -254,10 +254,10 @@ rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
 foos_ai_model = keras.models.load_model("crop_goalie.h5")
-Table = [0,0,640,360]
+Table = [0,10,640,120] # Almost the same as Rod3, just cropped a bit smaller
 global refPt
 refPt = Table
-model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resize_h = 54, num_frames = 3, model=foos_ai_model, blackouts=[Rod1,Rod2], crop_after_resize=[0,0,20,100])
+model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 80, resize_h = 15, num_frames = 1, model=foos_ai_model, blackouts=None, crop_after_resize=None)
 
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")

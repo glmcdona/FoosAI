@@ -23,6 +23,11 @@ class Experiment(object):
 		# Results
 		self.output_columns = self.root.find("OUTPUTS").text.split(",")
 		self.output_folder = os.path.join(self.base_path, self.root.find("OUTPUT_FOLDER").text)
+		
+		self.crop_to_rod = None
+		if self.root.find("PROCESSING").find("VIDEO").find("CROPTOROD") is not None:
+			self.crop_to_rod = self.root.find("PROCESSING").find("VIDEO").find("CROPTOROD").text
+		
 		self.output_width = int(self.root.find("PROCESSING").find("VIDEO").find("SIZE").find("W").text)
 		self.output_height = int(self.root.find("PROCESSING").find("VIDEO").find("SIZE").find("H").text)
 		
@@ -45,7 +50,7 @@ class Experiment(object):
 		self.recordings = []
 		for recording in self.root.find("RECORDINGS").iter("RECORDING"):
 			recording_path = os.path.join(self.base_path, recording.text)
-			self.recordings.append( Recording(recording_path, self.models, self.blackouts) )
+			self.recordings.append( Recording(recording_path, self.models, self.blackouts, self.crop_to_rod) )
 		
 		# Defined-output recordings
 		self.defined_output_recordings = []
