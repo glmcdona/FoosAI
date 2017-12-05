@@ -188,7 +188,7 @@ class Chunk(object):
 # 	https://github.com/fchollet/keras/blob/master/keras/preprocessing/image.py
 class VideoTransform():
 	# Transforms a frame+output pair for better generalization
-	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None, random_crop=None, resize=None):
+	def __init__(self, zoom_range=0.1, rotation_range=20, width_shift_range=0.1, height_shift_range=0.1, shear_range= 0.1, fill_mode='nearest', vertical_flip=False, horizontal_flip=True, horizontal_flip_invert_indices = [3,4,5], horizontal_flip_reverse_indices = [0,1,2], data_format=None, random_crop=None, crop=None, resize=None):
 
 		# Camera frame transform logic
 		self.cval = 0.
@@ -209,9 +209,12 @@ class VideoTransform():
 		self.seed_random = 1
 		self.prng = np.random.RandomState(self.seed)
 		self.random_crop = random_crop
+		self.crop = crop
 		self.output_size = resize
 		if self.output_size is None and self.random_crop is not None:
 			self.output_size = self.random_crop
+		elif resize is None and self.crop is not None:
+			self.output_size = [self.crop[2], self.crop[3]]
 
 		# Zoom range
 		if np.isscalar(zoom_range):
@@ -266,6 +269,9 @@ class VideoTransform():
 		x = frame
 		y = output
 		
+		# Crop the frame
+		if self.crop is not None:
+			x = x[self.crop[0]:self.crop[0]+self.crop[2],self.crop[1]:self.crop[1]+self.crop[3],:]
 		
 		img_row_axis = self.row_axis - 1
 		img_col_axis = self.col_axis - 1

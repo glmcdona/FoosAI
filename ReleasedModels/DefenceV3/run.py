@@ -16,7 +16,7 @@ import struct
 import scipy.misc
 
 class ViewpointModel(object):
-	def __init__(self, name, crop, resize_w, resize_h, num_frames, model, blackouts = None):
+	def __init__(self, name, crop, resize_w, resize_h, num_frames, model, blackouts = None, crop_after_resize = None):
 		self.cam_x = crop[0]
 		self.cam_y = crop[1]
 		self.cam_w = crop[2]
@@ -24,12 +24,17 @@ class ViewpointModel(object):
 		self.model = model
 		self.name = name
 		self.blackouts = blackouts
+		self.crop_after_resize = crop_after_resize
 		
 
 		self.resize_w = resize_w
 		self.resize_h = resize_h
 		self.num_frames = num_frames
-		self.data = np.zeros(shape=(1, num_frames, self.resize_h, self.resize_w, 3), dtype=np.float32)
+		
+		if self.crop_after_resize is None:
+			self.data = np.zeros(shape=(1, num_frames, self.resize_h, self.resize_w, 3), dtype=np.float32)
+		else:
+			self.data = np.zeros(shape=(1, num_frames, self.crop_after_resize[2], self.crop_after_resize[3], 3), dtype=np.float32)
 
 	def get_cam(self):
 		return (self.cam_x, self.cam_y, self.cam_w, self.cam_h)
@@ -93,10 +98,12 @@ class ViewpointModel(object):
 				frame[blackout[1]:(blackout[1] + blackout[3]), blackout[0]:(blackout[0] + blackout[2]),:] = 0
 		
 		# Crop the frame, resample, and normalize
-		#frame_resized = scipy.misc.imresize(frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)], (self.resize_h, self.resize_w) )
-		
 		#frame_crop = frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)]
 		frame_resized = cv2.resize(frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)], (self.resize_w, self.resize_h), interpolation=cv2.INTER_AREA)
+		
+		if self.crop_after_resize is not None:
+			# Apply the after-resize crop
+			frame_resized = frame_resized[self.crop_after_resize[0]:self.crop_after_resize[0]+self.crop_after_resize[2],self.crop_after_resize[1]:self.crop_after_resize[1]+self.crop_after_resize[3],:]
 		
 		image = Image.fromarray(frame_resized)
 		norm_image = np.array(image, dtype=np.float32)
@@ -122,6 +129,10 @@ class ViewpointModel(object):
 	def get_cropped_frame(self, frame):
 		# Crop the frame, resample, and normalize
 		frame_resized = frame[self.cam_y:(self.cam_y+self.cam_h), self.cam_x:(self.cam_x+self.cam_w)]
+		if self.crop_after_resize is not None:
+			# Apply the after-resize crop
+			frame_resized = frame_resized[self.crop_after_resize[0]:self.crop_after_resize[0]+self.crop_after_resize[2],self.crop_after_resize[1]:self.crop_after_resize[1]+self.crop_after_resize[3],:]
+		
 		return frame_resized
 
 
@@ -242,11 +253,11 @@ model_pos_rod3 = ViewpointModel(name = "Rod3", crop = Rod3, resize_w = 160, resi
 rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
-foos_ai_model = keras.models.load_model("goalie.h5")
+foos_ai_model = keras.models.load_model("crop_goalie.h5")
 Table = [0,0,640,360]
 global refPt
 refPt = Table
-model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resize_h = 54, num_frames = 3, model=foos_ai_model, blackouts=[Rod1])
+model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 100, resize_h = 54, num_frames = 3, model=foos_ai_model, blackouts=[Rod1,Rod2], crop_after_resize=[0,0,20,100])
 
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
