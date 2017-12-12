@@ -1,1 +1,0 @@
-python ..\..\..\Code\RawDataProcessing\raw_data_processing.py process experiment_hide_both_defenders.config

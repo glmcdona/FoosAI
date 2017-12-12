@@ -2,10 +2,16 @@ from chunk import *
 from recording import *
 from recording_defined_output import *
 import keras
+from keras import backend as K
 
 import pprint
 pp = pprint.PrettyPrinter(depth=6)
 
+# Register our custom loss functions so our rod model can load
+def me(y_true, y_pred):
+    return keras.backend.clip(K.abs(keras.backend.clip(y_pred,0.0,1.0) - keras.backend.clip(y_true,0.0,1.0)),0.0,0.2)*0.001 # Hackjob so Keras iterations show exponential value of MSE to get precision.
+
+	
 class Experiment(object):
 	'''
 	Simple class wraps an experiment
@@ -43,7 +49,7 @@ class Experiment(object):
 			model_path = os.path.join(self.base_path, model.find("FILE").text)
 			model_name = model.find("NAME").text
 			print("Loading model %s from %s." % (model_name, model_path))
-			self.models[model_name] = {'model':keras.models.load_model(model_path), 'width':int(model.find("SIZE").text.split(",")[0]), 'height':int(model.find("SIZE").text.split(",")[1])}
+			self.models[model_name] = {'model':keras.models.load_model(model_path, custom_objects={'me': me}), 'width':int(model.find("SIZE").text.split(",")[0]), 'height':int(model.find("SIZE").text.split(",")[1])}
 			print("Done loading model %s." % model_name)
 		
 		# Recordings

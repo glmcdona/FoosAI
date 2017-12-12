@@ -120,7 +120,7 @@ class Rod():
 		if self.model is not None:
 			# Use the model for tracking this rod
 			data = self._normalize_frame( frame)
-			return (self.model["model"].predict( data )[0,0], None, True)
+			return ( np.clip(self.model["model"].predict( data )[0,0], 0.0, 1.0), None, True)
 		else:
 			# Searches the box within the rod line for the specified gap, and
 			# returns it's resulting position.
