@@ -120,9 +120,9 @@ class ViewpointModel(object):
 		# shown as an image. This is intended to visualize intermediate CNN stages.
 		data = self.process_frame(frame, False)
 		
-		mosaic = make_mosaic(data, 10, 10) # (7, 20, 100) to grid of (7 by 20 images)
+		mosaic = make_mosaic(data, 7, 6) # (7, 20, 40) to grid of (7 by 20 images)
 		#pp.pprint(mosaic)
-		mosaic = cv2.resize(mosaic*5,None,fx=7, fy=7, interpolation = cv2.INTER_CUBIC)
+		mosaic = cv2.resize(mosaic*10,None,fx=7, fy=7, interpolation = cv2.INTER_CUBIC)
 		
 		cv2.imshow(self.name, mosaic) 
 		
@@ -307,19 +307,21 @@ rods = [model_pos_rod1, model_pos_rod2, model_pos_rod3]
 
 
 
-foos_ai_model = keras.models.load_model("crop_goalie.h5")
+
+
+foos_ai_model = keras.models.load_model("foosai_2frames.h5")
 Table = [0,10,640,120] # Almost the same as Rod3, just cropped a bit smaller
 global refPt
 refPt = Table
-model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 80, resize_h = 15, num_frames = 1, model=foos_ai_model, blackouts=None, crop_after_resize=None)
+model_2bar = ViewpointModel(name = "FoosAI", crop = Table, resize_w = 80, resize_h = 15, num_frames = 2, model=foos_ai_model, blackouts=None, crop_after_resize=None)
 
 
 # Visualization
-layer_name = 'conv3d_5' # (None, 1, 7, 20, 100)
+layer_name = 'conv3d_5' # (None, 1, 7, 20, 40)
 intermediate_layer_model = Model(inputs=foos_ai_model.input,
                                  outputs=foos_ai_model.get_layer(layer_name).output)
 #intermediate_output = intermediate_layer_model.predict(data)
-model_visualize = ViewpointModel(name = "conv3 7x20x100", crop = Table, resize_w = 80, resize_h = 15, num_frames = 1, model=intermediate_layer_model, blackouts=None, crop_after_resize=None)
+model_visualize = ViewpointModel(name = "conv3 7x20x40", crop = Table, resize_w = 80, resize_h = 15, num_frames = 2, model=intermediate_layer_model, blackouts=None, crop_after_resize=None)
 
 print("Note: If Python crashes, I've found that closing any other python apps using the GPU fixes the issue. Eg. close the Jupyter notebook used for training.")
 
@@ -333,7 +335,7 @@ if( len(sys.argv) == 2 ):
 	elif sys.argv[1] == "run":
 		ser = serial.Serial('COM3', 115200) # Communcating to the arduino controller that runs to robot
 		video_file = 2 # Webcam attached to PC
-		foosbot = Foosbot( controlled_rod = 0, ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file, visualize_models = [model_visualize])
+		foosbot = Foosbot( controlled_rod = 0, ser = ser, rod_models = rods, foosbot_model = model_2bar, video_file = video_file)
 		foosbot.run()
 else:
 	print("run.py <simulate OR run>")
